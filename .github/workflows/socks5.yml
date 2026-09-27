@@ -28,12 +28,10 @@ jobs:
 
       - name: Start WARP
         run: |
-          sudo warp-cli registration new
-          sudo warp-cli connect
-
+          sudo warp-cli --accept-tos registration new
+          sudo warp-cli --accept-tos connect
           sleep 5
-
-          sudo warp-cli status
+          sudo warp-cli --accept-tos status
 
       - name: Test IP
         run: |
