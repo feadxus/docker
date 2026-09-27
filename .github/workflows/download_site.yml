@@ -21,6 +21,38 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+      # 🌍 记录原始公网 IP
+      - name: 🌍 Check Original Public IP
+        run: |
+          echo "Original Public IP:"
+          curl -4s https://api.ipify.org
+          echo
+      # ☁️ 安装 Cloudflare WARP
+      - name: ☁️ Install Cloudflare WARP
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
+            | sudo gpg --yes --dearmor \
+            -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+            | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update
+          sudo apt-get install -y cloudflare-warp
+      # 🚀 启动 WARP
+      - name: 🚀 Start Cloudflare WARP
+        run: |
+          sudo warp-cli --accept-tos registration new
+          sudo warp-cli --accept-tos connect
+          sleep 5
+          sudo warp-cli --accept-tos status
+      # 🌐 确认 WARP 已接管网络
+      - name: 🌐 Check WARP Public IP
+        run: |
+          echo "WARP Public IP:"
+          curl -4s https://api.ipify.org
+          echo
+          echo "Cloudflare:"
+          curl -s https://www.cloudflare.com/cdn-cgi/trace | grep '^warp='
+      # 🚇 启动 Docker + Localtunnel
       - name: 🚇 Start Docker and Localtunnel
         run: |
           python3 scripts/start_tunnel.py
