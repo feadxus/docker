@@ -1,12 +1,17 @@
 name: Start Tunnel And Check Public URL
+
 on:
+  # 🖱️ 支持手动启动
   workflow_dispatch:
+  # ♻️ 每 6 小时自动启动一次
+  schedule:
+    - cron: "0 */6 * * *"
 permissions:
   contents: read
 jobs:
 
   # ==========================================================
-  # 启动 Docker + Localtunnel
+  # 🚇 启动 Docker + Localtunnel
   # ==========================================================
   start-tunnel:
     name: 🚇 Job 1 - Start Docker and Localtunnel
@@ -21,7 +26,7 @@ jobs:
           python3 scripts/start_tunnel.py
 
   # ==========================================================
-  # 检查公网地址 + 下载 + 加密 + 上传
+  # 🌐 检查公网地址 + 下载 + 加密 + 上传
   # ==========================================================
   check-public-url:
     name: 🌐 Job 2 - Check Public URL and Process Page
