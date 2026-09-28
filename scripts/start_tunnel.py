@@ -284,9 +284,9 @@ def main() -> None:
 
     # 测试结束后删除固定解压目录
     finally:
-    if extract_dir is not None and extract_dir.exists():
-        print(f"🧹 删除解压目录: {extract_dir}")
-        shutil.rmtree(extract_dir, ignore_errors=True)
+        if extract_dir is not None and extract_dir.exists():
+            print(f"🧹 删除解压目录: {extract_dir}")
+            shutil.rmtree(extract_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
