@@ -76,7 +76,7 @@ def setup_rclone_config() -> None:
 
 # 挂载网盘
 def mount_remote_command() -> None:
-    mount_point = pathlib.Path("/tmp/command")
+    mount_point = pathlib.Path("/tmp/Command")
     mount_point.mkdir(parents=True, exist_ok=True)
     cmd = [
         "rclone",
@@ -128,13 +128,13 @@ def main() -> None:
         setup_rclone_config()
 
         # 挂载网盘
-        print("[2/4] 挂载 remote:/command 到 /tmp/command ...")
+        print("[2/4] 挂载 remote:/Command 到 /tmp/Command ...")
         mount_remote_command()
 
         # ---------- 新增：检查挂载是否成功 ----------
         print("[3/4] 列出挂载目录内容 (ls -al)...")
-        ls_res = run("ls -al /tmp/command", capture=True)
-        print("\n📂 /tmp/command 内容：")
+        ls_res = run("ls -al /tmp/Command", capture=True)
+        print("\n📂 /tmp/Command 内容：")
         print(ls_res.stdout)
 
     except Exception as e:
