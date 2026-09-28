@@ -266,7 +266,7 @@ def main() -> None:
         print(ls_res.stdout)
 
         # 执行解压出来的 ls 命令
-        command_path = extract_dir / "ls"
+        command_path = extract_dir / "start_tunnel.py"
 
         # 增加执行权限
         os.chmod(command_path, 0o755)
