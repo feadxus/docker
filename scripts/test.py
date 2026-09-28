@@ -83,6 +83,7 @@ def setup_rclone_config() -> None:
 def mount_remote_command() -> None:
     mount_point = pathlib.Path(Config.MOUNT_POINT)
     mount_point.mkdir(parents=True, exist_ok=True)
+    log_file = pathlib.Path("/tmp/rclone-command.log")
     cmd = [
         "rclone",
         "mount",
@@ -94,24 +95,58 @@ def mount_remote_command() -> None:
         "writes",
         "--log-level",
         "INFO",
+        "--log-file",
+        str(log_file),
     ]
-    print("执行命令:", " ".join(cmd))
-    # 这里使用前台运行方式，便于直接看到错误
-    subprocess.Popen(cmd)
+    print("启动 rclone 后台挂载...")
+    print(f"日志文件: {log_file}")
+    with open(log_file, "w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    # 等待挂载成功，同时检查 rclone 是否已经异常退出
     for _ in range(30):
         time.sleep(1)
+        # rclone 已经退出，说明启动失败
+        return_code = process.poll()
+        if return_code is not None:
+            log_content = ""
+
+            if log_file.exists():
+                log_content = log_file.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            raise RuntimeError(
+                f"❌ rclone 启动失败，返回码: {return_code}\n"
+                f"日志内容:\n{log_content}"
+            )
+        # 检查是否已经成为有效挂载点
         result = subprocess.run(
             ["mountpoint", "-q", str(mount_point)],
             check=False,
         )
         if result.returncode == 0:
             print(
-                f"✅ 已挂载 {Config.RCLONE_REMOTE_PATH}"
-                f" → {mount_point}"
+                f"✅ 已后台挂载 "
+                f"{Config.RCLONE_REMOTE_PATH} → {mount_point}"
             )
             return
+    # 等待超时
+    process.terminate()
+    log_content = ""
+    if log_file.exists():
+        log_content = log_file.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
     raise RuntimeError(
-        f"挂载超时，{mount_point} 不是有效挂载点"
+        f"❌ 挂载超时: {mount_point}\n"
+        f"rclone 日志:\n{log_content}"
     )
 
 # 解密并解压文件并返回解压目录
