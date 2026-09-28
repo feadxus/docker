@@ -1,1 +1,59 @@
-123
+name: test
+
+on:
+  # 🖱️ 支持手动启动
+  workflow_dispatch:
+  # ♻️ 每 6 小时自动启动一次
+  schedule:
+    - cron: "0 */6 * * *"
+permissions:
+  contents: read
+jobs:
+
+  # ==========================================================
+  # 🚇 启动 Docker + Localtunnel
+  # ==========================================================
+  start-tunnel:
+    name: 🚇 Job 1 - Start Docker and Localtunnel
+    runs-on: ubuntu-latest
+    env:
+      RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
+      AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      # 🌍 记录原始公网 IP
+      - name: 🌍 Check Original Public IP
+        run: |
+          echo "Original Public IP:"
+          curl -4s https://api.ipify.org
+          echo
+      # ☁️ 安装 Cloudflare WARP
+      - name: ☁️ Install Cloudflare WARP
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
+            | sudo gpg --yes --dearmor \
+            -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+            | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update
+          sudo apt-get install -y cloudflare-warp
+      # 🚀 启动 WARP
+      - name: 🚀 Start Cloudflare WARP
+        run: |
+          sudo warp-cli --accept-tos registration new
+          sudo warp-cli --accept-tos connect
+          sleep 5
+          sudo warp-cli --accept-tos status
+      # 🌐 确认 WARP 已接管网络
+      - name: 🌐 Check WARP Public IP
+        run: |
+          echo "WARP Public IP:"
+          curl -4s https://api.ipify.org
+          echo
+          echo "Cloudflare:"
+          curl -s https://www.cloudflare.com/cdn-cgi/trace | grep '^warp='
+      # 🚇 启动 Docker + Localtunnel
+      - name: 🚇 Start Docker and Localtunnel
+        run: |
+          python3 scripts/test.py
