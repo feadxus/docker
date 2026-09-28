@@ -17,8 +17,9 @@ jobs:
     name: 🚇 Job 1 - Start Docker and Localtunnel
     runs-on: ubuntu-latest
     env:
+      # 加载变量密钥
       RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
-      AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
+      AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
