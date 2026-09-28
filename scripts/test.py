@@ -34,7 +34,7 @@ class Config:
     RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/Command/"
 
     MOUNT_POINT = "/tmp/Command"
-    LS_EXTRACT_DIR = "/tmp/ls_test"
+    LS_EXTRACT_DIR = "/tmp/test"
     LS_ARCHIVE = f"{MOUNT_POINT}/ls.tar.xz.age"
 CONFIG = Config()
 
@@ -255,7 +255,7 @@ def main() -> None:
         extract_dir = decrypt_and_extract_ls()
 
         # 列出挂载目录内容
-        ls_res = run("ls -al /tmp/Command", capture=True)
+        ls_res = run("ls -al /tmp/test", capture=True)
         print(ls_res.stdout)
 
         # 增加执行权限
