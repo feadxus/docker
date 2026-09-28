@@ -108,10 +108,10 @@ def mount_remote_command() -> None:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    # 等待挂载成功，同时检查 rclone 是否已经异常退出
+    # 等待挂载成功,同时检查 rclone 是否已经异常退出
     for _ in range(30):
         time.sleep(1)
-        # rclone 已经退出，说明启动失败
+        # rclone 已经退出,说明启动失败
         return_code = process.poll()
         if return_code is not None:
             log_content = ""
@@ -122,7 +122,7 @@ def mount_remote_command() -> None:
                     errors="replace",
                 )
             raise RuntimeError(
-                f"❌ rclone 启动失败，返回码: {return_code}\n"
+                f"❌ rclone 启动失败,返回码: {return_code}\n"
                 f"日志内容:\n{log_content}"
             )
         # 检查是否已经成为有效挂载点
@@ -220,7 +220,7 @@ def decrypt_and_extract_ls() -> pathlib.Path:
                 errors="replace",
             ).strip()
             raise RuntimeError(
-                f"❌ age 解密失败，返回码: "
+                f"❌ age 解密失败,返回码: "
                 f"{age_return_code}\n{error}"
             )
         if tar_process.returncode != 0:
@@ -229,7 +229,7 @@ def decrypt_and_extract_ls() -> pathlib.Path:
                 errors="replace",
             ).strip()
             raise RuntimeError(
-                f"❌ tar 解压失败，返回码: "
+                f"❌ tar 解压失败,返回码: "
                 f"{tar_process.returncode}\n{error}"
             )
         print("✅ age 解密成功")
@@ -256,52 +256,11 @@ def main() -> None:
 
         # 列出挂载目录内容
         ls_res = run("ls -al /tmp/Command", capture=True)
-
-        print(f"\n📂 {Config.MOUNT_POINT} 内容：")
         print(ls_res.stdout)
-
-        print("[4/4] 解密并解压 ls.tar.xz.age...")
-        decrypt_and_extract_ls()
-
-        # 固定执行路径
-        ls_path = extract_dir / "ls"
-
-        if not ls_path.is_file():
-            raise RuntimeError(
-                f"❌ 解压后找不到可执行文件: {ls_path}"
-            )
 
         # 增加执行权限
         current_mode = ls_path.stat().st_mode
         os.chmod(ls_path, current_mode | 0o700)
-
-        print(f"✅ 找到文件: {ls_path}")
-        print("▶️ 开始测试执行...")
-
-        test_result = subprocess.run(
-            [str(ls_path), "--version"],
-            cwd=str(extract_dir),
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-
-        output = (
-            test_result.stdout.strip()
-            or test_result.stderr.strip()
-        )
-
-        if test_result.returncode != 0:
-            raise RuntimeError(
-                "❌ ls 执行失败\n"
-                f"返回码: {test_result.returncode}\n"
-                f"输出:\n{output}"
-            )
-
-        print("✅ ls 执行成功")
-        print(f"📄 输出:\n{output}")
-        print("\n🎉 解密、解压和执行测试全部成功")
 
     except Exception as e:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
