@@ -103,6 +103,12 @@ def main() -> None:
         print("[2/4] 挂载 remote:/command 到 /tmp/command ...")
         mount_remote_command()
 
+        # ---------- 新增：检查挂载是否成功 ----------
+        print("[3/4] 列出挂载目录内容 (ls -al)...")
+        ls_res = run("ls -al /tmp/command", capture=True)
+        print("\n📂 /tmp/command 内容：")
+        print(ls_res.stdout)
+
     except Exception as e:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n[{now_str}] ❌ 错误: {e}")
