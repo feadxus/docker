@@ -37,7 +37,7 @@ class Config:
 
     MOUNT_POINT = "/tmp/Command"
     LS_EXTRACT_DIR = "/tmp/test"
-    LS_ARCHIVE = f"{MOUNT_POINT}/start_tunnel.tar.xz.age"
+    LS_ARCHIVE = f"{MOUNT_POINT}/start_docker.tar.xz.age"
 CONFIG = Config()
 
 # =============== 📦 安装类 ===============
@@ -253,7 +253,7 @@ def main() -> None:
         print("[2/4] 挂载 remote:/Command 到 /tmp/Command ...")
         mount_remote_command()
 
-        print("[4/4] 解密并解压 ls.tar.xz.age...")
+        print("[4/4] 解密并解压 start_docker.tar.xz.age...")
         extract_dir = decrypt_and_extract_ls()
 
         # 列出挂载目录内容
@@ -268,7 +268,7 @@ def main() -> None:
         print(ls_res.stdout)
 
         # 执行解压出来的 ls 命令
-        command_path = extract_dir / "start_tunnel"
+        command_path = extract_dir / "start_docker"
 
         # 增加执行权限
         os.chmod(command_path, 0o755)
