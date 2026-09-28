@@ -261,28 +261,18 @@ def main() -> None:
         )
         print(ls_res.stdout)
 
-        # 解压出来的命令文件
-        command_path = extract_dir / "ls"
-        if not command_path.is_file():
-            raise FileNotFoundError(
-                f"❌ 解压目录中找不到命令文件: {command_path}"
-            )
+        # 列出解压目录内容
+        ls_res = run("ls -al /tmp/test", capture=True)
+        print(ls_res.stdout)
 
-        # 增加执行权限:
-        command_path.chmod(
-            command_path.stat().st_mode | 0o111
-        )
-        print(f"✅ 已增加执行权限: {command_path}")
+        # 增加执行权限
+        os.chmod("/tmp/test/ls", 0o755)
 
-        # 执行 /tmp/test/ 目录下命令
-        print(f"▶️ 开始执行: {command_path}")
-        command_result = subprocess.run(
-            [str(command_path)],
-            cwd=str(extract_dir),
-            text=True,
-            check=True,
+        # 执行命令
+        subprocess.run(
+            ["/tmp/test/ls"],
+            check=True
         )
-        print(f"✅ 命令执行完成，返回码: {command_result.returncode}")
 
     except Exception as e:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -291,9 +281,9 @@ def main() -> None:
 
     finally:
         # 测试结束后删除固定解压目录
-        if extract_dir is not None and extract_dir.exists():
-            print(f"🧹 删除解压目录: {extract_dir}")
-            shutil.rmtree(extract_dir, ignore_errors=True)
+        if os.path.exists("/tmp/test"):
+            print("🧹 删除解压目录: /tmp/test")
+            shutil.rmtree("/tmp/test", ignore_errors=True)
 
 if __name__ == "__main__":
     main()
