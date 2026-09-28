@@ -1,195 +1,292 @@
 import os
-import signal
-import subprocess
 import sys
+import time
+import shutil
+import pathlib
+import tarfile
+import tempfile
+import subprocess
+import urllib.request
+from datetime import datetime
 
-# ============================================================
-# 配置
-# ============================================================
-
-CONTAINER_NAME = "test-nginx"
-IMAGE = "nginx:alpine"
-
-HOST_PORT = 8080
-CONTAINER_PORT = 80
-
-TUNNEL_TIMEOUT = 3300  # 55 分钟
-
-run_id = os.environ.get("GITHUB_RUN_ID", "local")
-SUBDOMAIN = f"test-{run_id}"
-
-PUBLIC_URL = f"https://{SUBDOMAIN}.loca.lt"
-
-# ============================================================
-# 全局资源
-# ============================================================
-
-container_id = None
-tunnel_proc = None
-
-# ============================================================
-# Docker
-# ============================================================
-
-def start_docker():
-    global container_id
-
-    print("🐳 启动 Nginx 容器...", flush=True)
-
-    result = subprocess.run(
-        [
-            "docker", "run", "-d",
-            "-p", f"{HOST_PORT}:{CONTAINER_PORT}",
-            "--name", CONTAINER_NAME,
-            IMAGE,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    container_id = result.stdout.strip()
-
-    print(
-        f"🐳 Docker 容器已启动：{container_id}",
-        flush=True,
-    )
-
-def stop_docker():
-    global container_id
-
-    if not container_id:
-        return
-
-    print("🛑 停止 Docker 容器...", flush=True)
-
-    subprocess.run(
-        ["docker", "stop", container_id],
-        check=False,
-    )
-
-    container_id = None
-
-# ============================================================
-# Localtunnel
-# ============================================================
-
-def install_localtunnel():
-    print("📦 安装 Localtunnel...", flush=True)
-
-    subprocess.run(
-        ["npm", "install", "-g", "localtunnel"],
-        check=True,
-    )
-
-def start_tunnel():
-    global tunnel_proc
-
-    print(
-        f"🌐 准备启动 Localtunnel：{SUBDOMAIN}",
-        flush=True,
-    )
-
-    tunnel_proc = subprocess.Popen(
-        [
-            "lt",
-            "--port", str(HOST_PORT),
-            "--subdomain", SUBDOMAIN,
-        ],
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-    )
-
-    print(f"🌍 公网地址：{PUBLIC_URL}", flush=True)
-
-def stop_tunnel():
-    global tunnel_proc
-
-    if not tunnel_proc:
-        return
-
-    if tunnel_proc.poll() is None:
-        print("🛑 停止 Localtunnel...", flush=True)
-
-        tunnel_proc.terminate()
-
-        try:
-            tunnel_proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            print("⚠️ Localtunnel 未正常退出，强制结束", flush=True)
-            tunnel_proc.kill()
-
-    tunnel_proc = None
-
-# ============================================================
-# 清理
-# ============================================================
-
-def cleanup():
-    print("🧹 开始清理资源...", flush=True)
-
-    # 先关闭 Tunnel
-    stop_tunnel()
-
-    # 再停止 Docker
-    stop_docker()
-
-    print("✅ 清理完成", flush=True)
-
-# ============================================================
-# 信号处理
-# ============================================================
-
-def handle_signal(signum, frame):
-    print(f"\n⚠️ 收到信号：{signum}", flush=True)
-
-    cleanup()
-
-    sys.exit(0)
-
-
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
-
-# ============================================================
-# 主流程
-# ============================================================
-
-def main():
+# =============== 🛠️ 工具函数 ===============
+def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.CompletedProcess:
+    """执行 shell 命令的通用函数"""
     try:
-        # 1. 启动 Docker
-        start_docker()
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            executable="/bin/bash",
+            cwd=cwd,
+            capture_output=capture,
+            text=True,
+            check=True
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
-        # 2. 安装 Localtunnel
-        install_localtunnel()
+# =============== ⚙️ 配置类 ===============
+class Config:
+    # 在 rclone 配置文件中使用的远程名称
+    RCLONE_REMOTE = "FEADXUS-Google-Drive"
+    # 挂载此目录
+    RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/Command/"
 
-        # 3. 启动 Tunnel
-        start_tunnel()
+    MOUNT_POINT = "/tmp/Command"
+    LS_EXTRACT_DIR = "/tmp/test"
+    LS_ARCHIVE = f"{MOUNT_POINT}/start_tunnel.tar.xz.age"
+CONFIG = Config()
 
-        print(
-            "⏳ 第一个 Job 将持续运行，"
-            "等待第二个 Job 进行公网访问测试...",
-            flush=True,
+# =============== 📦 安装类 ===============
+# 安装 pip 依赖库
+pip_packages = [
+    "google-auth-oauthlib",
+    "google-api-python-client"
+]
+# ⚠️ 注意:不能使用 sys.executable,直接调用系统环境的 pip3
+subprocess.check_call(["pip3", "install", *pip_packages])
+
+# 下载并安装特定版本的 age (v1.3.2)
+age_version = "v1.3.2"
+url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
+tar_path = "/tmp/age.tar.gz"
+extract_dir = "/tmp/age_bin"
+urllib.request.urlretrieve(url, tar_path)
+os.makedirs(extract_dir, exist_ok=True)
+with tarfile.open(tar_path, "r:gz") as tar:
+    tar.extractall(path=extract_dir)
+src_dir = os.path.join(extract_dir, "age")
+subprocess.check_call(["sudo", "cp", f"{src_dir}/age", f"{src_dir}/age-keygen", "/usr/local/bin/"])
+subprocess.check_call(["sudo", "chmod", "+x", "/usr/local/bin/age", "/usr/local/bin/age-keygen"])
+
+# 安装 Google Drive rclone 与 skopeo 工具
+subprocess.run(
+    "curl -fsSL https://rclone.org/install.sh | sudo bash",
+    shell=True,
+    executable="/bin/bash",
+    check=True,
+)
+# 设置 rclone 配置
+def setup_rclone_config() -> None:
+    rclone_secret = os.getenv("RCLONE_SECRET_DATA")
+    if not rclone_secret:
+        raise RuntimeError("❌ RCLONE_SECRET_DATA 环境变量未设置")
+    conf_dir = os.path.expanduser("~/.config/rclone")
+    os.makedirs(conf_dir, exist_ok=True)
+    conf_path = os.path.join(conf_dir, "rclone.conf")
+    with open(conf_path, "w", encoding="utf-8") as f:
+        f.write(rclone_secret)
+    print(f"✅ rclone 配置已写入: {conf_path}")
+
+# 挂载网盘
+def mount_remote_command() -> None:
+    mount_point = pathlib.Path(Config.MOUNT_POINT)
+    mount_point.mkdir(parents=True, exist_ok=True)
+    log_file = pathlib.Path("/tmp/rclone-command.log")
+    cmd = [
+        "rclone",
+        "mount",
+        Config.RCLONE_REMOTE_PATH,
+        str(mount_point),
+        "--config",
+        os.path.expanduser("~/.config/rclone/rclone.conf"),
+        "--vfs-cache-mode",
+        "writes",
+        "--log-level",
+        "INFO",
+        "--log-file",
+        str(log_file),
+    ]
+    print("启动 rclone 后台挂载...")
+    print(f"日志文件: {log_file}")
+    with open(log_file, "w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    # 等待挂载成功,同时检查 rclone 是否已经异常退出
+    for _ in range(30):
+        time.sleep(1)
+        # rclone 已经退出,说明启动失败
+        return_code = process.poll()
+        if return_code is not None:
+            log_content = ""
+
+            if log_file.exists():
+                log_content = log_file.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            raise RuntimeError(
+                f"❌ rclone 启动失败,返回码: {return_code}\n"
+                f"日志内容:\n{log_content}"
+            )
+        # 检查是否已经成为有效挂载点
+        result = subprocess.run(
+            ["mountpoint", "-q", str(mount_point)],
+            check=False,
+        )
+        if result.returncode == 0:
+            print(
+                f"✅ 已后台挂载 "
+                f"{Config.RCLONE_REMOTE_PATH} → {mount_point}"
+            )
+            return
+    # 等待超时
+    process.terminate()
+    log_content = ""
+    if log_file.exists():
+        log_content = log_file.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+    raise RuntimeError(
+        f"❌ 挂载超时: {mount_point}\n"
+        f"rclone 日志:\n{log_content}"
+    )
+
+# 解密并解压文件并返回解压目录
+def decrypt_and_extract_ls() -> pathlib.Path:
+    age_private_key = os.getenv("AGE_PRIVATE_KEY")
+    if not age_private_key:
+        raise RuntimeError("❌ AGE_PRIVATE_KEY 环境变量未设置")
+    encrypted_archive = pathlib.Path(Config.LS_ARCHIVE)
+    extract_dir = pathlib.Path(Config.LS_EXTRACT_DIR)
+
+    if not encrypted_archive.is_file():
+        raise FileNotFoundError(
+            f"❌ 找不到加密文件: {encrypted_archive}"
+        )
+    # 清理上一次的解压内容
+    if extract_dir.exists():
+        print(f"🧹 删除旧目录: {extract_dir}")
+        shutil.rmtree(extract_dir)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    key_file = None
+    try:
+        # 创建临时密钥文件
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="age_key_",
+            dir="/tmp",
+            delete=False,
+        ) as f:
+            key_file = pathlib.Path(f.name)
+            f.write(age_private_key)
+            f.write("\n")
+        os.chmod(key_file, 0o600)
+        print(f"📦 加密文件: {encrypted_archive}")
+        print(f"📂 解压目录: {extract_dir}")
+        age_process = subprocess.Popen(
+            [
+                "age",
+                "-d",
+                "-i",
+                str(key_file),
+                str(encrypted_archive),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        tar_process = subprocess.Popen(
+            [
+                "tar",
+                "-xJf",
+                "-",
+                "-C",
+                str(extract_dir),
+            ],
+            stdin=age_process.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if age_process.stdout is not None:
+            age_process.stdout.close()
+        _, tar_stderr = tar_process.communicate()
+        age_stderr = (
+            age_process.stderr.read()
+            if age_process.stderr
+            else b""
+        )
+        age_return_code = age_process.wait()
+        if age_return_code != 0:
+            error = age_stderr.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+            raise RuntimeError(
+                f"❌ age 解密失败,返回码: "
+                f"{age_return_code}\n{error}"
+            )
+        if tar_process.returncode != 0:
+            error = tar_stderr.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+            raise RuntimeError(
+                f"❌ tar 解压失败,返回码: "
+                f"{tar_process.returncode}\n{error}"
+            )
+        print("✅ age 解密成功")
+        print("✅ tar 解压成功")
+        return extract_dir
+    finally:
+        # 删除临时密钥文件
+        if key_file is not None:
+            key_file.unlink(missing_ok=True)
+
+# 执行每个模块
+def main() -> None:
+    try:
+        # 设置 rclone
+        print("[1/4] 设置 rclone 配置...")
+        setup_rclone_config()
+
+        # 挂载网盘
+        print("[2/4] 挂载 remote:/Command 到 /tmp/Command ...")
+        mount_remote_command()
+
+        print("[4/4] 解密并解压 ls.tar.xz.age...")
+        extract_dir = decrypt_and_extract_ls()
+
+        # 列出挂载目录内容
+        ls_res = run(
+            f"ls -al {extract_dir}",
+            capture=True,
+        )
+        print(ls_res.stdout)
+
+        # 列出解压目录内容
+        ls_res = run(f"ls -al {extract_dir}", capture=True)
+        print(ls_res.stdout)
+
+        # 执行解压出来的 ls 命令
+        command_path = extract_dir / "ls"
+
+        # 增加执行权限
+        os.chmod(command_path, 0o755)
+
+        # 执行命令
+        subprocess.run(
+            [str(command_path)],
+            check=True
         )
 
-        # 4. 等待 Tunnel
-        try:
-            tunnel_proc.wait(timeout=TUNNEL_TIMEOUT)
-
-        except subprocess.TimeoutExpired:
-            print("⏰ 运行时间达到 55 分钟", flush=True)
-
     except Exception as e:
-        print(f"❌ 启动失败：{e}", flush=True)
-        raise
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n[{now_str}] ❌ 错误: {e}")
+        sys.exit(1)
 
+    # 测试结束后删除固定解压目录
     finally:
-        # 无论正常退出还是异常，都清理
-        cleanup()
-
-# ============================================================
-# Entry Point
-# ============================================================
+    if extract_dir is not None and extract_dir.exists():
+        print(f"🧹 删除解压目录: {extract_dir}")
+        shutil.rmtree(extract_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
