@@ -105,7 +105,7 @@ def mount_remote_command() -> None:
             with open("/tmp/rclone-command.log", encoding="utf-8") as f:
                 log = f.read()
             raise RuntimeError(
-                f"rclone 已退出，返回码 {process.returncode}\n{log}"
+                f"rclone 已退出,返回码 {process.returncode}\n{log}"
             )
         mounted = subprocess.run(
             ["mountpoint", "-q", str(mount_point)],
@@ -119,6 +119,93 @@ def mount_remote_command() -> None:
         log = f.read()
     raise RuntimeError(f"等待挂载超时\n{log}")
 
+# 解密并解压文件并返回解压目录
+def decrypt_and_extract_ls() -> pathlib.Path:
+    age_private_key = os.getenv("AGE_PRIVATE_KEY")
+    if not age_private_key:
+        raise RuntimeError("❌ AGE_PRIVATE_KEY 环境变量未设置")
+    encrypted_archive = pathlib.Path("/tmp/Command/ls.tar.xz.age")
+    if not encrypted_archive.is_file():
+        raise FileNotFoundError(
+            f"❌ 找不到加密文件: {encrypted_archive}"
+        )
+    extract_dir = pathlib.Path(
+        tempfile.mkdtemp(prefix="ls_extract_", dir="/tmp")
+    )
+    key_file = None
+    try:
+        # 创建临时密钥文件
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="age_key_",
+            dir="/tmp",
+            delete=False,
+        ) as f:
+            key_file = pathlib.Path(f.name)
+            f.write(age_private_key)
+            f.write("\n")
+        os.chmod(key_file, 0o600)
+        print(f"📦 加密文件: {encrypted_archive}")
+        print(f"📂 解压目录: {extract_dir}")
+        # age 解密
+        age_process = subprocess.Popen(
+            [
+                "age",
+                "-d",
+                "-i",
+                str(key_file),
+                str(encrypted_archive),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # tar 解压
+        tar_process = subprocess.Popen(
+            [
+                "tar",
+                "-xJf",
+                "-",
+                "-C",
+                str(extract_dir),
+            ],
+            stdin=age_process.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if age_process.stdout is not None:
+            age_process.stdout.close()
+        tar_stdout, tar_stderr = tar_process.communicate()
+        age_stderr = (
+            age_process.stderr.read()
+            if age_process.stderr
+            else b""
+        )
+        age_return_code = age_process.wait()
+        if age_return_code != 0:
+            error = age_stderr.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+            raise RuntimeError(
+                f"❌ age 解密失败,返回码: {age_return_code}\n{error}"
+            )
+        if tar_process.returncode != 0:
+            error = tar_stderr.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+            raise RuntimeError(
+                f"❌ tar 解压失败,返回码: "
+                f"{tar_process.returncode}\n{error}"
+            )
+        print("✅ age 解密成功")
+        print("✅ tar 解压成功")
+        return extract_dir
+    finally:
+        # 不把私钥留在磁盘上
+        if key_file is not None:
+            key_file.unlink(missing_ok=True)
 
 # 执行每个模块
 def main() -> None:
@@ -131,16 +218,64 @@ def main() -> None:
         print("[2/4] 挂载 remote:/Command 到 /tmp/Command ...")
         mount_remote_command()
 
-        # ---------- 新增：检查挂载是否成功 ----------
-        print("[3/4] 列出挂载目录内容 (ls -al)...")
+        print("[4/4] 解密并解压 ls.tar.xz.age...")
+        extract_dir = decrypt_and_extract_ls()
+
+        # 列出挂载目录内容
         ls_res = run("ls -al /tmp/Command", capture=True)
-        print("\n📂 /tmp/Command 内容：")
-        print(ls_res.stdout)
+
+        print("\n🔍 查找解压后的 ls 文件...")
+        ls_candidates = [
+            path
+            for path in extract_dir.rglob("ls")
+            if path.is_file()
+        ]
+        if not ls_candidates:
+            files = [
+                str(path.relative_to(extract_dir))
+                for path in extract_dir.rglob("*")
+            ]
+            raise RuntimeError(
+                "❌ 解压成功,但没有找到名为 ls 的文件.\n"
+                f"解压内容: {files}"
+            )
+        ls_path = ls_candidates[0]
+        # 增加当前用户的执行权限
+        current_mode = ls_path.stat().st_mode
+        os.chmod(ls_path, current_mode | 0o700)
+        print(f"✅ 找到文件: {ls_path}")
+        print("▶️ 开始测试执行...")
+        test_result = subprocess.run(
+            [str(ls_path), "--version"],
+            cwd=str(ls_path.parent),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        output = (
+            test_result.stdout.strip()
+            or test_result.stderr.strip()
+        )
+        if test_result.returncode != 0:
+            raise RuntimeError(
+                "❌ ls 执行失败\n"
+                f"返回码: {test_result.returncode}\n"
+                f"输出:\n{output}"
+            )
+        print("✅ ls 执行成功")
+        print(f"📄 输出:\n{output}")
+        print("\n🎉 解密、解压和执行测试全部成功")
 
     except Exception as e:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n[{now_str}] ❌ 错误: {e}")
         sys.exit(1)
+
+    finally:
+        # 测试完成后删除临时解压目录
+        if extract_dir is not None:
+            shutil.rmtree(extract_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
