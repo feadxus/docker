@@ -78,18 +78,46 @@ def setup_rclone_config() -> None:
 def mount_remote_command() -> None:
     mount_point = pathlib.Path("/tmp/command")
     mount_point.mkdir(parents=True, exist_ok=True)
-    cmd = (
-        f"rclone mount {Config.RCLONE_REMOTE_PATH} {mount_point} "
-        "--daemon "
-        "--vfs-cache-mode writes "
-        "--allow-other "
-        "--log-level INFO"
+    cmd = [
+        "rclone",
+        "mount",
+        CONFIG.RCLONE_REMOTE_PATH,
+        str(mount_point),
+        "--config",
+        os.path.expanduser("~/.config/rclone/rclone.conf"),
+        "--vfs-cache-mode",
+        "writes",
+        "--log-level",
+        "INFO",
+        "--log-file",
+        "/tmp/rclone-command.log",
+    ]
+    # 确认 fuse.conf 配置正确后再启用
+    # cmd.append("--allow-other")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
     )
-    try:
-        run(cmd)
-        print(f"✅ 已挂载 {Config.RCLONE_REMOTE_PATH} → {mount_point}")
-    except RuntimeError as e:
-        raise RuntimeError(f"挂载失败: {e}")
+    for _ in range(30):
+        time.sleep(1)
+        if process.poll() is not None:
+            with open("/tmp/rclone-command.log", encoding="utf-8") as f:
+                log = f.read()
+            raise RuntimeError(
+                f"rclone 已退出，返回码 {process.returncode}\n{log}"
+            )
+        mounted = subprocess.run(
+            ["mountpoint", "-q", str(mount_point)],
+            check=False,
+        )
+        if mounted.returncode == 0:
+            print(f"✅ 已挂载 {CONFIG.RCLONE_REMOTE_PATH} → {mount_point}")
+            return
+    process.terminate()
+    with open("/tmp/rclone-command.log", encoding="utf-8") as f:
+        log = f.read()
+    raise RuntimeError(f"等待挂载超时\n{log}")
 
 
 # 执行每个模块
