@@ -17,7 +17,6 @@ jobs:
     name: 🚇 Job 1 - Start Docker and Localtunnel
     runs-on: ubuntu-latest
     env:
-      # 加载变量密钥
       GITHUB_RUN_ID: ${{ github.run_id }}
       RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
       AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
