@@ -1,0 +1,53 @@
+name: Test Docker Pull Speed
+
+on:
+  workflow_dispatch:  # 手动触发
+  schedule:
+    - cron: '0 0 * * *'  # 每天午夜运行（可选）
+
+jobs:
+  test-pull-speed:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      - name: 🌍 检查原始公共IP
+        run: |
+          echo "原始公共IP:"
+          curl -4s https://api.ipify.org
+          echo
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Test Docker Pull Speed
+        run: |
+          echo "========== Docker Pull Speed Test =========="
+          echo "镜像: feadxus/comfyui-voxcpm:latest"
+          echo "开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # 记录开始时间（纳秒）
+          START_TIME=$(date +%s%N)
+          
+          # 拉取镜像
+          docker pull feadxus/comfyui-voxcpm:latest
+          PULL_EXIT_CODE=$?
+          
+          # 记录结束时间（纳秒）
+          END_TIME=$(date +%s%N)
+          
+          # 计算耗时（转换为秒）
+          DURATION=$(( (END_TIME - START_TIME) / 1000000000 ))
+          MINUTES=$(( DURATION / 60 ))
+          SECONDS=$(( DURATION % 60 ))
+          
+          echo ""
+          echo "========== 测试结果 =========="
+          echo "拉取状态: $([ $PULL_EXIT_CODE -eq 0 ] && echo '成功 ✓' || echo '失败 ✗')"
+          echo "总耗时: ${MINUTES}分${SECONDS}秒"
+          echo "结束时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # 获取镜像大小信息
+          docker images feadxus/comfyui-voxcpm:latest --format "镜像大小: {{.Size}}"
+          
+          exit $PULL_EXIT_CODE
