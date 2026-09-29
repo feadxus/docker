@@ -112,26 +112,10 @@ def setup_rclone_config() -> None:
 
 # 下载网页
 def download_page(url: str) -> pathlib.Path:
-    """
-    下载 Localtunnel 返回的原始页面,包括提醒页,
-    并使用 monolith 处理为最终 HTML 文件.
-    Args:
-        url: Localtunnel 地址
-    Returns:
-        pathlib.Path: 保存的 HTML 文件路径
-    Raises:
-        RuntimeError: 下载失败或文件验证失败
-    """
+    """下载 Localtunnel 页面"""
     Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = (
-        Config.OUTPUT_DIR
-        / f"localtunnel_reminder_{timestamp}.html"
-    )
-    raw_html_file = (
-        Config.OUTPUT_DIR
-        / f".localtunnel_raw_{timestamp}.html"
-    )
+    output_file = Config.OUTPUT_DIR / f"localtunnel_page_{timestamp}.html"
     user_agent = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -141,13 +125,8 @@ def download_page(url: str) -> pathlib.Path:
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            # 清理之前可能残留的文件
-            for file_path in (raw_html_file, output_file):
-                if file_path.exists():
-                    file_path.unlink()
-            # 注意:
-            # 这里故意不添加 Bypass-Tunnel-Reminder Header,
-            # 因此 Localtunnel 应该返回提醒页.
+            if output_file.exists():
+                output_file.unlink()
             curl_cmd = [
                 "curl",
                 "-L",
@@ -157,6 +136,7 @@ def download_page(url: str) -> pathlib.Path:
                 str(timeout),
                 "-A",
                 user_agent,
+                "-H", "bypass-tunnel-reminder: true",
                 "-o",
                 str(raw_html_file),
                 url,
@@ -168,75 +148,30 @@ def download_page(url: str) -> pathlib.Path:
                 timeout=timeout + 10,
                 check=False,
             )
-            # 不使用 --fail,所以即使 HTTP 状态码是 511,
-            # curl 仍然会把返回内容保存到 raw_html_file.
             if curl_result.returncode != 0:
                 error_message = (
-                    curl_result.stderr.strip()
-                    or curl_result.stdout.strip()
-                    or f"curl exited with code {curl_result.returncode}"
+                    curl_result.stderr.strip() or 
+                    f"curl exited with code {curl_result.returncode}"
                 )
                 raise RuntimeError(error_message)
-            if not raw_html_file.is_file():
-                raise RuntimeError(
-                    f"Raw HTML file not generated: {raw_html_file}"
-                )
-            if raw_html_file.stat().st_size == 0:
+            if not output_file.is_file() or output_file.stat().st_size == 0:
                 raise RuntimeError("Downloaded page is empty")
-            # 使用 monolith 处理本地提醒页
-            monolith_cmd = [
-                "monolith",
-                "--timeout",
-                str(timeout),
-                "--user-agent",
-                user_agent,
-                "-o",
-                str(output_file),
-                str(raw_html_file),
-            ]
-            monolith_result = subprocess.run(
-                monolith_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout + 10,
-                check=False,
-            )
-            if monolith_result.returncode != 0:
-                error_message = (
-                    monolith_result.stderr.strip()
-                    or monolith_result.stdout.strip()
-                    or f"monolith exited with code "
-                       f"{monolith_result.returncode}"
-                )
-                raise RuntimeError(error_message)
-            if not output_file.is_file():
-                raise RuntimeError(
-                    f"Output file not generated: {output_file}"
-                )
-            if output_file.stat().st_size == 0:
-                raise RuntimeError("Output file is empty")
+            # ✅ 验证下载的是实际内容,不是提示页
+            with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                if "bypass-tunnel-reminder" in content or "You are about to visit" in content:
+                    raise RuntimeError("Downloaded content is tunnel reminder page, not actual content")
             return output_file
         except subprocess.TimeoutExpired:
             if attempt < max_retries:
                 time.sleep(3)
                 continue
-            raise RuntimeError(
-                "Downloading Localtunnel reminder page timed out"
-            )
+            raise RuntimeError("Download timed out")
         except Exception as e:
             if attempt < max_retries:
                 time.sleep(2)
                 continue
-            raise RuntimeError(
-                f"Failed to download Localtunnel reminder page: {e}"
-            ) from e
-        finally:
-            # 最终只保留 monolith 生成的文件
-            if raw_html_file.exists():
-                try:
-                    raw_html_file.unlink()
-                except OSError:
-                    pass
+            raise RuntimeError(f"Failed to download: {e}") from e
     raise RuntimeError("Unknown error")
 
 def get_tunnel_url() -> str:
@@ -333,7 +268,7 @@ def main() -> None:
 
         # 压缩 + 加密
         print("\n[3/4] 压缩并加密...")
-        #output_filename = f"feadxus-backup-{datetime.now().strftime('%Y-%m-%d')}.tar.xz.age"
+        output_filename = f"feadxus-backup-{datetime.now().strftime('%Y-%m-%d')}.tar.xz.age"
         encrypted_file = compress_and_encrypt(CONFIG.BASE_DIR, output_filename)
 
         # 上传到 Google Drive
