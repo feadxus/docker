@@ -1,4 +1,4 @@
-name: Diagnose Docker Pull Connection
+name: 测试下载镜像
 
 on:
   workflow_dispatch:
