@@ -313,8 +313,8 @@ def main() -> None:
 
         # 下载网页
         print("\n[2/4] 等待并下载网页...")
-        #tunnel_url = get_tunnel_url()
-        #wait_for_tunnel(tunnel_url)
+        tunnel_url = get_tunnel_url()
+        wait_for_tunnel(tunnel_url)
         downloaded_file = download_page(tunnel_url)
 
         # 压缩 + 加密
