@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 import time
@@ -26,6 +28,7 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
         raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
 # =============== ⚙️ 配置类 ===============
+
 class Config:
     BASE_DIR = pathlib.Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
@@ -34,6 +37,7 @@ class Config:
 CONFIG = Config()
 
 # =============== 📦 安装类 ===============
+
 # 安装 pip 依赖库
 pip_packages = [
     "google-auth-oauthlib",
@@ -41,6 +45,7 @@ pip_packages = [
 ]
 # ⚠️ 注意:不能使用 sys.executable,直接调用系统环境的 pip3
 subprocess.check_call(["pip3", "install", *pip_packages])
+
 
 # 下载并安装特定版本的 age (v1.3.2)
 age_version = "v1.3.2"
@@ -55,6 +60,7 @@ src_dir = os.path.join(extract_dir, "age")
 subprocess.check_call(["sudo", "cp", f"{src_dir}/age", f"{src_dir}/age-keygen", "/usr/local/bin/"])
 subprocess.check_call(["sudo", "chmod", "+x", "/usr/local/bin/age", "/usr/local/bin/age-keygen"])
 
+
 # 安装 skopeo wget 工具
 subprocess.run(
     "sudo apt-get update && sudo apt-get install -y skopeo wget curl",
@@ -62,6 +68,7 @@ subprocess.run(
     executable="/bin/bash",
     check=True,
 )
+
 
 # 安装 Rust 工具
 subprocess.run(
@@ -73,6 +80,7 @@ subprocess.run(
     check=True,
 )
 
+
 # 安装 monolith 工具
 subprocess.run(
     "curl -L https://github.com/Y2Z/monolith/releases/download/v2.10.1/monolith-gnu-linux-x86_64 -o /usr/local/bin/monolith && "
@@ -81,6 +89,7 @@ subprocess.run(
     executable="/bin/bash",
     check=True,
 )
+
 
 # 安装 Google Drive rclone 与 skopeo 工具
 subprocess.run(
@@ -239,10 +248,10 @@ def get_tunnel_url() -> str:
     print(f"Localtunnel 地址:{url}")
     return url
 
-def wait_for_tunnel(url: str, max_attempts: int = 60) -> None:
+def wait_for_tunnel(url: str, max_attempts: int = 30) -> None:
     """
     等待 Localtunnel 公网地址可以访问.
-    每 5 秒检查一次,最多等待约 5 分钟.
+    每 1 分钟检查一次,最多等待约 30 分钟.
     """
     print(f"等待公网服务启动:{url}")
 
@@ -264,8 +273,11 @@ def wait_for_tunnel(url: str, max_attempts: int = 60) -> None:
             print(
                 f"第 {attempt}/{max_attempts} 次等待失败:{e}"
             )
-            time.sleep(5)
+            # 60秒检测一次映射域名地址是否可以下载
+            time.sleep(60)
     raise RuntimeError("等待 Localtunnel 超时")
+
+
 
 # 🔐 加密压缩下载的页面
 def compress_and_encrypt(work_dir, output_file):
@@ -282,7 +294,8 @@ def compress_and_encrypt(work_dir, output_file):
     print(f"🔒 压缩加密完成! 生成文件: {output_file}")
     return output_file
 
-# 保存至 Google Drive 网盘
+
+# ☁️ 保存至 Google Drive 网盘
 def upload_to_drive(local_file: pathlib.Path, remote_path: str = None) -> None:
     if remote_path is None:
         remote_path = Config.RCLONE_REMOTE_PATH
@@ -300,7 +313,8 @@ def upload_to_drive(local_file: pathlib.Path, remote_path: str = None) -> None:
         print(result.stdout)
     print(f"🎉 上传成功!")
 
-# 执行每个模块
+
+# 🚀 执行每个模块
 def main() -> None:
     try:
         print("\n" + "="*50)
@@ -314,7 +328,6 @@ def main() -> None:
         # 下载网页
         print("\n[2/4] 等待并下载网页...")
         tunnel_url = get_tunnel_url()
-        wait_for_tunnel(tunnel_url)
         downloaded_file = download_page(tunnel_url)
 
         # 压缩 + 加密
