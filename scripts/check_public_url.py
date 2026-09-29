@@ -7,6 +7,7 @@ import shutil
 import pathlib
 import tarfile
 import subprocess
+import urllib.request
 from datetime import datetime
 
 # =============== 🛠️ 工具函数 ===============
