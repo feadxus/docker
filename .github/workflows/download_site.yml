@@ -17,16 +17,16 @@ jobs:
     name: 🚇 Job 1 - Start Docker and Localtunnel
     runs-on: ubuntu-latest
     env:
+      # 添加环境变量
       GITHUB_RUN_ID: ${{ github.run_id }}
       RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
       AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
-      # 🌍 记录原始公网 IP
-      - name: 🌍 Check Original Public IP
+      - name: 🌍 检查原始公共IP
         run: |
-          echo "Original Public IP:"
+          echo "原始公共IP:"
           curl -4s https://api.ipify.org
           echo
       # ☁️ 安装 Cloudflare WARP
@@ -46,10 +46,9 @@ jobs:
           sudo warp-cli --accept-tos connect
           sleep 5
           sudo warp-cli --accept-tos status
-      # 🌐 确认 WARP 已接管网络
-      - name: 🌐 Check WARP Public IP
+      - name: 🌐 检查 WAWP 公共IP
         run: |
-          echo "WARP Public IP:"
+          echo "WAWP 公共IP:"
           curl -4s https://api.ipify.org
           echo
           echo "Cloudflare:"
@@ -66,6 +65,7 @@ jobs:
     name: 🌐 Job 2 - Check Public URL and Process Page
     runs-on: ubuntu-latest
     env:
+      # 添加环境变量
       GITHUB_RUN_ID: ${{ github.run_id }}
       RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
       AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
