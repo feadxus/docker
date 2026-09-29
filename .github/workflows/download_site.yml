@@ -63,7 +63,6 @@ jobs:
   # ==========================================================
   check-public-url:
     name: 🌐 Job 2 - Check Public URL and Process Page
-    needs: start-tunnel
     runs-on: ubuntu-latest
     env:
       # 添加环境变量
