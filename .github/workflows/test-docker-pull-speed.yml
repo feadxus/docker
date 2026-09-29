@@ -1,53 +1,60 @@
-name: Test Docker Pull Speed
+name: Diagnose Docker Pull Connection
 
 on:
-  workflow_dispatch:  # 手动触发
-  schedule:
-    - cron: '0 0 * * *'  # 每天午夜运行（可选）
+  workflow_dispatch:
 
 jobs:
-  test-pull-speed:
+  diagnose:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-      - name: 🌍 检查原始公共IP
+      - name: Check Network and DNS
         run: |
-          echo "原始公共IP:"
-          curl -4s https://api.ipify.org
-          echo
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Test Docker Pull Speed
-        run: |
-          echo "========== Docker Pull Speed Test =========="
-          echo "镜像: feadxus/comfyui-voxcpm:latest"
-          echo "开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
-          
-          # 记录开始时间（纳秒）
-          START_TIME=$(date +%s%N)
-          
-          # 拉取镜像
-          docker pull feadxus/comfyui-voxcpm:latest
-          PULL_EXIT_CODE=$?
-          
-          # 记录结束时间（纳秒）
-          END_TIME=$(date +%s%N)
-          
-          # 计算耗时（转换为秒）
-          DURATION=$(( (END_TIME - START_TIME) / 1000000000 ))
-          MINUTES=$(( DURATION / 60 ))
-          SECONDS=$(( DURATION % 60 ))
+          echo "========== 网络诊断 =========="
+          echo "DNS 解析结果:"
+          nslookup registry-1.docker.io
           
           echo ""
-          echo "========== 测试结果 =========="
-          echo "拉取状态: $([ $PULL_EXIT_CODE -eq 0 ] && echo '成功 ✓' || echo '失败 ✗')"
-          echo "总耗时: ${MINUTES}分${SECONDS}秒"
-          echo "结束时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "DNS 服务器:"
+          cat /etc/resolv.conf
           
-          # 获取镜像大小信息
-          docker images feadxus/comfyui-voxcpm:latest --format "镜像大小: {{.Size}}"
+          echo ""
+          echo "网络路由信息 (到 Docker Hub):"
+          traceroute -m 15 registry-1.docker.io || tracepath registry-1.docker.io
           
-          exit $PULL_EXIT_CODE
+          echo ""
+          echo "当前 IP 信息:"
+          curl -s https://ipinfo.io
+      
+      - name: Test Docker Registry Connection
+        run: |
+          echo "========== Docker Registry 连接测试 =========="
+          
+          # 测试连接到 Docker Registry
+          echo "连接到 registry-1.docker.io:443"
+          nc -zv registry-1.docker.io 443
+          
+          # 使用 curl 获取响应头信息
+          echo ""
+          echo "获取服务器信息:"
+          curl -I https://registry-1.docker.io/v2/
+          
+          # 显示 SSL 证书信息
+          echo ""
+          echo "SSL 证书信息:"
+          openssl s_client -connect registry-1.docker.io:443 -servername registry-1.docker.io </dev/null 2>/dev/null | grep -A 2 "subject="
+      
+      - name: Monitor Pull Speed with tcpdump
+        run: |
+          echo "========== 拉取镜像并监控连接 =========="
+          
+          # 注意：tcpdump 需要 sudo，GitHub Actions 默认有权限
+          # 这里用更简单的方式 - 使用 curl 测试下载速度
+          
+          echo "测试 Docker Hub 下载速度:"
+          time curl -o /dev/null -s -w "下载速度: %{speed_download} bytes/sec\n" \
+            https://registry-1.docker.io/v2/library/alpine/manifests/latest
+          
+          echo ""
+          echo "拉取你的镜像:"
+          time docker pull feadxus/comfyui-voxcpm:latest
