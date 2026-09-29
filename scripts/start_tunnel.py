@@ -244,6 +244,7 @@ def decrypt_and_extract_ls() -> pathlib.Path:
 
 # 执行每个模块
 def main() -> None:
+    extract_dir = None
     try:
         print("[1/4] 设置 rclone 配置...")
         setup_rclone_config()
@@ -260,7 +261,7 @@ def main() -> None:
 
         print("[6/6] 执行解压出来的 start_docker 命令...")
         # 拼接地址
-        command_path = extract_dir / "start_docker"
+        command_path = pathlib.Path(extract_dir) / "start_docker"
         # 增加执行权限
         os.chmod(command_path, 0o755)
         # 执行命令
