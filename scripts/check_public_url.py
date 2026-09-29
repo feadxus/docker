@@ -248,36 +248,6 @@ def get_tunnel_url() -> str:
     print(f"Localtunnel 地址:{url}")
     return url
 
-def wait_for_tunnel(url: str, max_attempts: int = 30) -> None:
-    """
-    等待 Localtunnel 公网地址可以访问.
-    每 1 分钟检查一次,最多等待约 30 分钟.
-    """
-    print(f"等待公网服务启动:{url}")
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "curl/8.0",
-                    "bypass-tunnel-reminder": "true",
-                },
-            )
-            with urllib.request.urlopen(request, timeout=15) as response:
-                print(
-                    f"公网服务已可用,HTTP 状态码:{response.status}"
-                )
-                return
-        except Exception as e:
-            print(
-                f"第 {attempt}/{max_attempts} 次等待失败:{e}"
-            )
-            # 60秒检测一次映射域名地址是否可以下载
-            time.sleep(60)
-    raise RuntimeError("等待 Localtunnel 超时")
-
-
 
 # 🔐 加密压缩下载的页面
 def compress_and_encrypt(work_dir, output_file):
