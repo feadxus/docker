@@ -302,7 +302,7 @@ def main() -> None:
 
         # 压缩 + 加密
         print("\n[3/4] 压缩并加密...")
-        output_filename = f"feadxus-backup-{datetime.now().strftime('%Y-%m-%d')}.tar.xz.age"
+        output_filename = "feadxus-backup.tar.xz.age"
         encrypted_file = compress_and_encrypt(CONFIG.BASE_DIR, output_filename)
 
         # 上传到 Google Drive
