@@ -8,32 +8,14 @@ import shutil
 import pathlib
 import tarfile
 import logging
+import tempfile
 import subprocess
 import urllib.request
 from datetime import datetime
 from email.message import EmailMessage
 
-# 导入 Google API 邮件模块
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-
 # 配置日志记录
 logging.basicConfig(filename='/tmp/veracrypt.log', level=logging.INFO, format='%(message)s')
-
-# =============== ⚙️ 配置类 ===============
-class Config:
-    BASE_DIR = pathlib.Path(__file__).resolve().parent
-    OUTPUT_DIR = BASE_DIR / "output"
-    RCLONE_REMOTE = "FEADXUS-Google-Drive"
-    RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/X/"
-    
-    # Gmail 专属配置
-    SCOPES = ['https://mail.google.com/']
-    EMAIL_FROM = "feadxus@gmail.com"
-    EMAIL_TO = "fsxedx@gmail.com"
-
-CONFIG = Config()
 
 
 # =============== 🛠️ 工具函数 ===============
@@ -54,36 +36,42 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
         raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
 
-# 2. 下载并安装特定版本的 age (v1.3.2)
-age_version = "v1.3.2"
-url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
-tar_path = "/tmp/age.tar.gz"
-extract_dir = "/tmp/age_bin"
-urllib.request.urlretrieve(url, tar_path)
-os.makedirs(extract_dir, exist_ok=True)
-with tarfile.open(tar_path, "r:gz") as tar:
-    tar.extractall(path=extract_dir)
-src_dir = os.path.join(extract_dir, "age")
-subprocess.check_call(["sudo", "cp", f"{src_dir}/age", f"{src_dir}/age-keygen", "/usr/local/bin/"])
-subprocess.check_call(["sudo", "chmod", "+x", "/usr/local/bin/age", "/usr/local/bin/age-keygen"])
+# =============== 📦 环境初始化 ===============
+def initialize_environment():
+    print("📦 开始环境初始化...", flush=True)
 
-# 3. 安装常用基础工具
-subprocess.run(
-    "sudo apt-get update && sudo apt-get install -y curl",
-    shell=True,
-    executable="/bin/bash",
-    check=True,
-)
+    # 1. 安装 pip 依赖库
+    pip_packages = ["google-auth-oauthlib", "google-api-python-client", "google-auth"]
+    subprocess.check_call(["pip3", "install", *pip_packages])
 
-# 4. 安装 Google Drive rclone 工具
-subprocess.run(
-    "curl -fsSL https://rclone.org/install.sh | sudo bash",
-    shell=True,
-    executable="/bin/bash",
-    check=True,
-)
+    # 2. 下载并安装特定版本的 age (v1.3.2) 带重试
+    age_version = "v1.3.2"
+    url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
+    tar_path = "/tmp/age.tar.gz"
+    extract_dir = "/tmp/age_bin"
 
-# 5. 设置 rclone 配置
+    for attempt in range(1, 4):
+        try:
+            print(f"📥 正在下载 age 工具 (尝试: {attempt}/3)...", flush=True)
+            urllib.request.urlretrieve(url, tar_path)
+            break
+        except Exception as e:
+            if attempt == 3: raise e
+            time.sleep(3)
+
+    os.makedirs(extract_dir, exist_ok=True)
+    with tarfile.open(tar_path, "r:gz") as tar:
+        tar.extractall(path=extract_dir)
+    src_dir = os.path.join(extract_dir, "age")
+    subprocess.check_call(["sudo", "cp", f"{src_dir}/age", f"{src_dir}/age-keygen", "/usr/local/bin/"])
+    subprocess.check_call(["sudo", "chmod", "+x", "/usr/local/bin/age", "/usr/local/bin/age-keygen"])
+
+    # 3. 安装常用基础工具并部署 rclone
+    subprocess.run("sudo apt-get update && sudo apt-get install -y curl", shell=True, executable="/bin/bash", check=True)
+    subprocess.run("curl -fsSL https://rclone.org/install.sh | sudo bash", shell=True, executable="/bin/bash", check=True)
+
+
+# =============== 🛠️ 设置 rclone 配置 ===============
 def setup_rclone_config() -> None:
     rclone_secret = os.getenv("RCLONE_SECRET_DATA")
     if not rclone_secret:
@@ -93,188 +81,131 @@ def setup_rclone_config() -> None:
     conf_path = os.path.join(conf_dir, "rclone.conf")
     with open(conf_path, "w", encoding="utf-8") as f:
         f.write(rclone_secret)
-    print(f"✅ rclone 配置已写入: {conf_path}")
+    print(f"✅ rclone 配置已写入")
 
 
 # =============== ⚙️ 核心业务逻辑 ===============
+
 def prepare_tunnel_file() -> None:
-    """检查并把项目 A 提交的 current_tunnel.txt 移动到 output 目录中准备打包"""
     CONFIG.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     source_file = pathlib.Path("current_tunnel.txt")
-    
     if not source_file.is_file():
-        raise RuntimeError("❌ 错误:在仓库根目录下未找到 'current_tunnel.txt' 文件!")
+        raise RuntimeError("❌ 错误:仓库根目录下未找到 'current_tunnel.txt' 文件!")
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{timestamp}.txt"
+    target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     shutil.copy(source_file, target_file)
-    print(f"📝 已成功将最新的隧道地址读入并存为:{target_file}")
 
 
 # =============== 🔐 加密并压缩 output 文件夹 ===============
 def compress_and_encrypt(work_dir, encrypted_output_name):
-    """🔐 加密并压缩 output 文件夹"""
     age_public_key = os.getenv('AGE_PUBLIC_KEY', '').strip()
     if not age_public_key:
         raise RuntimeError("AGE_PUBLIC_KEY 环境变量未设置")
 
     final_encrypted_path = pathlib.Path(work_dir) / encrypted_output_name
-    folder_to_compress = CONFIG.OUTPUT_DIR.name
-
-    print(f"🔒 正在将 '{folder_to_compress}' 文件夹打包、XZ 压缩并使用 age 加密...", flush=True)
-    cmd = (
-        f"set -o pipefail; "
-        f"tar cJf - {folder_to_compress} "
-        f'| age -r "{age_public_key}" '
-        f'> "{final_encrypted_path}"'
-    )
+    cmd = f"set -o pipefail; tar cJf - {CONFIG.OUTPUT_DIR.name} | age -r '{age_public_key}' > '{final_encrypted_path}'"
     run(cmd, cwd=str(CONFIG.BASE_DIR))
 
-    if final_encrypted_path.is_file() and final_encrypted_path.stat().st_size > 0:
-        print(f"✅ 加密打包完成,生成文件:{final_encrypted_path} ({final_encrypted_path.stat().st_size} bytes)")
-    else:
-        raise RuntimeError("❌ 加密打包失败,生成的文件为空或不存在")
 
-
-# 📤 上传至 Google Drive 网盘
+# =============== 📤 上传至 Google Drive 网盘 ===============
 def upload_to_gdrive(file_name: str) -> None:
     local_file_path = CONFIG.BASE_DIR / file_name
-    print(f"📤 正在上传 {file_name} 到 Google Drive -> {CONFIG.RCLONE_REMOTE_PATH}", flush=True)
-    cmd = f"rclone copy \"{local_file_path}\" \"{CONFIG.RCLREMOTE_PATH if hasattr(CONFIG, 'RCLREMOTE_PATH') else CONFIG.RCLONE_REMOTE_PATH}\""
-    run(cmd)
+    run(f"rclone copy \"{local_file_path}\" \"{CONFIG.RCLONE_REMOTE_PATH}\"")
     print("🎉 网盘同步成功!")
 
 
-# =============== 📧 Gmail 业务模块 (修正版) ===============
+# =============== 📧 Gmail 业务模块 (完美复刻本地环境) ===============
 
-def get_gmail_credentials():
-    """🚀 核心修正:从 GitHub 密钥库传入的环境变量中实时恢复并加载凭证"""
-    creds = None
+def execute_gmail_action(action_type="send", file_name=None):
+    """
+    💡 利用临时文件机制,完美复刻你本地的 'from_authorized_user_file' 环境
+    并完成 发送 或 删除 动作
+    """
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
     token_b64 = os.getenv("GMAIL_TOKEN_BASE64")
-    if token_b64:
-        try:
-            # 实时进行 base64 解码,直接恢复出 JSON 字符串
-            token_json_str = base64.b64decode(token_b64.strip()).decode("utf-8")
-            # 通过 `from_json` 直接从内存加载凭证,避免在磁盘创建明文文件
-            creds = Credentials.from_json(token_json_str, CONFIG.SCOPES)
-            print("🔑 已成功从密钥库环境变量直接加载 Gmail 凭证", flush=True)
-        except Exception as e:
-            logging.error(f"❌ 解析环境变量中的 GMAIL_TOKEN_BASE64 失败: {e}")
-            return None
-    else:
-        logging.error("❌ 未检测到 GMAIL_TOKEN_BASE64 环境变量")
-        return None
+    if not token_b64:
+        raise RuntimeError("❌ 未检测到 GMAIL_TOKEN_BASE64 环境变量")
 
-    # 如果凭证过期且有刷新令牌,尝试刷新
-    if creds and creds.expired and creds.refresh_token:
-        try:
-            print("🔄 Gmail 凭证已过期,正在尝试自动刷新...", flush=True)
+    # 1. 解码出原始的 JSON 字符串
+    token_json_str = base64.b64decode(token_b64.strip()).decode("utf-8")
+
+    # 2. 核心黑魔法:在系统安全临时目录下创建一个绝对私密的文件
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as temp_token_file:
+        temp_token_file.write(token_json_str)
+        temp_token_file.flush()
+        temp_token_path = temp_token_file.name
+
+    try:
+        # 3. 完美复刻你本地的加载方式,让 Google 正常注入刷新器
+        creds = Credentials.from_authorized_user_file(temp_token_path, CONFIG.SCOPES)
+
+        # 4. 执行刷新(如果是新运行,expiry时间过期了这里会自动用 refresh_token 去申请新的)
+        if creds and creds.expired and creds.refresh_token:
+            print("🔄 内存检测到凭证已过期,正在利用原装引擎请求 Google 刷新...", flush=True)
             creds.refresh(Request())
-            # 注意:在 GitHub Actions 容器中刷新只能改变当前进程内存中的 creds.
-            # 如果频繁过期,建议确保你当初生成这个 JSON 令牌时用的是生产模式(Web app类型),保证长期有效.
-        except Exception as e:
-            logging.error(f"❌ 刷新 token 失败: {e}")
-            return None
 
-    if not creds or not creds.valid:
-        logging.error("❌ 无法获取有效的 Gmail 凭证.")
-        return None
-    return creds
+        if not creds or not creds.valid:
+            raise RuntimeError("❌ 临时的 Google 凭证对象验证无效.")
 
+        service = build('gmail', 'v1', credentials=creds)
 
-def send_scheduled_email_with_attachment(file_name: str):
-    """发送带有加密文件的邮件模块"""
-    creds = get_gmail_credentials()
-    if not creds:
-        raise RuntimeError("Gmail 身份验证失败,无法发送邮件")
+        # 5. 按照策略分流动作
+        if action_type == "send":
+            file_path = CONFIG.BASE_DIR / file_name
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            msg = EmailMessage()
+            msg.set_content("附件为加密打包的 tunnel 数据,请注意查收.")
+            msg["Subject"] = f"请注意查收 - {now_str}"
+            msg["From"] = CONFIG.EMAIL_FROM
+            msg["To"] = CONFIG.EMAIL_TO
 
-    service = build('gmail', 'v1', credentials=creds)
-    file_path = CONFIG.BASE_DIR / file_name
+            with open(file_path, "rb") as f:
+                msg.add_attachment(f.read(), maintype="application", subtype="octet-stream", filename=file_name)
 
-    if not file_path.is_file():
-        raise FileNotFoundError(f"找不到需要发送的附件文件: {file_path}")
+            encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            sent_msg = service.users().messages().send(userId="me", body={"raw": encoded_message}).execute()
+            print(f"📧 邮件成功发送！Message ID: {sent_msg['id']}", flush=True)
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    msg = EmailMessage()
-    msg.set_content("附件为加密打包的 tunnel 数据,请注意查收.")
-    msg["Subject"] = f"请注意查收 - {now_str}"
-    msg["From"] = CONFIG.EMAIL_FROM
-    msg["To"] = CONFIG.EMAIL_TO
-
-    with open(file_path, "rb") as f:
-        file_data = f.read()
-        msg.add_attachment(
-            file_data,
-            maintype="application",
-            subtype="octet-stream",
-            filename=file_name
-        )
-
-    encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    create_message = {"raw": encoded_message}
-    
-    try:
-        sent_msg = service.users().messages().send(userId="me", body=create_message).execute()
-        logging.info(f"[{now_str}] 1️⃣ ✅ 邮件发送成功. Message ID: {sent_msg['id']}")
-        print(f"📧 邮件发送成功！Message ID: {sent_msg['id']}", flush=True)
-    except Exception as e:
-        logging.error(f"[{now_str}] 1️⃣ ❌ 发送失败: {e}")
-        raise e
-
-
-def delete_sent_emails():
-    """删除已发送邮件函数"""
-    creds = get_gmail_credentials()
-    if not creds:
-        return
-        
-    service = build('gmail', 'v1', credentials=creds)
-    total_deleted = 0
-    try:
-        while True:
-            results = service.users().messages().list(userId='me', q='in:sent', maxResults=500).execute()
-            messages = results.get('messages', [])
-            if not messages:
-                break
-            msg_ids = [msg['id'] for msg in messages]
-            try:
-                service.users().messages().batchDelete(
-                    userId='me',
-                    body={'ids': msg_ids}
-                ).execute()
+        elif action_type == "delete":
+            total_deleted = 0
+            while True:
+                results = service.users().messages().list(userId='me', q='in:sent', maxResults=500).execute()
+                messages = results.get('messages', [])
+                if not messages: break
+                msg_ids = [m['id'] for m in messages]
+                service.users().messages().batchDelete(userId='me', body={'ids': msg_ids}).execute()
                 total_deleted += len(msg_ids)
-                logging.info(f"2️⃣ 🔥 已删除 {total_deleted} 封已发送邮件...")
-            except Exception as e:
-                logging.error(f"2️⃣ 删除邮件时发生错误: {e}")
-                break
-    except KeyboardInterrupt:
-        logging.info("2️⃣ ✅ 手动中断清理任务.")
-    except Exception as e:
-        logging.error(f"2️⃣ 清理异常退出: {e}")
+            print(f"🧹 已成功从发件箱彻底清空了 {total_deleted} 封发送记录.", flush=True)
+
     finally:
-        logging.info(f"2️⃣ ✅ 清理完成.共删除 {total_deleted} 封已发送邮件.")
-        print(f"🧹 已成功从发件箱彻底清空了 {total_deleted} 封已发送记录.", flush=True)
+        # 6. 安全善后:不论成功或失败,必须抹除这个临时生成的明文 JSON 文件
+        if os.path.exists(temp_token_path):
+            os.unlink(temp_token_path)
 
 
 # =============== 主流程 ===============
 def main():
     encrypted_file_name = "tunnel_data.tar.xz.age"
     try:
+        initialize_environment()
         setup_rclone_config()
         prepare_tunnel_file()
         compress_and_encrypt(CONFIG.BASE_DIR, encrypted_file_name)
         upload_to_gdrive(encrypted_file_name)
 
-        print("📧 正在生成并发送带有加密附件的邮件...", flush=True)
-        send_scheduled_email_with_attachment(encrypted_file_name)
+        print("📧 开始拉起安全沙箱,组装发送邮件...", flush=True)
+        execute_gmail_action(action_type="send", file_name=encrypted_file_name)
 
-        print("🧹 正在清理 Gmail 发件箱残留...", flush=True)
-        for i in range(2):
+        print("🧹 开始执行发件箱残留清理...", flush=True)
+        for _ in range(2):
             try:
-                delete_sent_emails()
+                execute_gmail_action(action_type="delete")
                 time.sleep(1)
             except Exception as e:
-                logging.error(f"2️⃣ 第{i+1}次删除尝试失败: {e}")
+                logging.error(f"清理发件记录失败尝试: {e}")
                 continue
 
     except Exception as e:
@@ -283,11 +214,9 @@ def main():
 
     finally:
         print("🧹 正在清理本地临时敏感数据...", flush=True)
-        if CONFIG.OUTPUT_DIR.exists():
-            shutil.rmtree(CONFIG.OUTPUT_DIR)
+        if CONFIG.OUTPUT_DIR.exists(): shutil.rmtree(CONFIG.OUTPUT_DIR)
         local_archive = CONFIG.BASE_DIR / encrypted_file_name
-        if local_archive.exists():
-            local_archive.unlink()
+        if local_archive.exists(): local_archive.unlink()
         print("✅ 运行结束", flush=True)
 
 
