@@ -118,24 +118,29 @@ def compress_and_encrypt(work_dir, encrypted_output_name):
     age_public_key = os.getenv('AGE_PUBLIC_KEY', '').strip()
     if not age_public_key:
         raise RuntimeError("AGE_PUBLIC_KEY 环境变量未设置")
-        
+
     final_encrypted_path = pathlib.Path(work_dir) / encrypted_output_name
     folder_to_compress = CONFIG.OUTPUT_DIR.name  # "output"
-    
-    print(f"🔒 正在将 '{folder_to_compress}' 文件夹打包并使用 age 加密...", flush=True)
-    
-    # 补齐并修正您的加密串命令:
-    # 1. 使用 tar czf - 将整个 output 文件夹打包输出到标准流
-    # 2. 通过管道 | 丢给 age 加密,并填入您的 AGE_PUBLIC_KEY
-    # 3. 最终落盘为配置的目标加密文件 (.tar.gz.age)
-    cmd = f"tar czf - {folder_to_compress} | age -r \"{age_public_key}\" > \"{final_encrypted_path}\""
-    run(cmd, cwd=str(CONFIG.BASE_DIR))
-    
-    if final_encrypted_path.is_file() and final_encrypted_path.stat().st_size > 0:
-        print(f"✅ 加密打包完成,生成文件:{final_encrypted_path} ({final_encrypted_path.stat().st_size} bytes)")
-    else:
-        raise RuntimeError("❌ 加密打包失败,生成的文件为空或不存在")
 
+    print(
+        f"🔒 正在将 '{folder_to_compress}' 文件夹打包、XZ 压缩并使用 age 加密...",
+        flush=True
+    )
+    cmd = (
+        f"set -o pipefail; "
+        f"tar cJf - {folder_to_compress} "
+        f'| age -r "{age_public_key}" '
+        f'> "{final_encrypted_path}"'
+    )
+    run(cmd, cwd=str(CONFIG.BASE_DIR))
+
+    if final_encrypted_path.is_file() and final_encrypted_path.stat().st_size > 0:
+        print(
+            f"✅ 加密打包完成，生成文件：{final_encrypted_path} "
+            f"({final_encrypted_path.stat().st_size} bytes)"
+        )
+    else:
+        raise RuntimeError("❌ 加密打包失败，生成的文件为空或不存在")
 
 # 📤 上传至 Google Drive 网盘
 def upload_to_gdrive(file_name: str) -> None:
@@ -146,44 +151,44 @@ def upload_to_gdrive(file_name: str) -> None:
     run(cmd)
     print("🎉 网盘同步成功!")
 
+
 # ============================================================
 # 主流程
 # ============================================================
-
 def main():
-    # 本次任务生成的加密包文件名
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    encrypted_file_name = f"tunnel_data_{timestamp}.tar.gz.age"
-    
+    encrypted_file_name = "tunnel_data.tar.xz.age"
     try:
         # 1. 配置网盘凭证
         setup_rclone_config()
-        
-        # 2. 替代原来的 download_page:直接提取本地仓库内的 current_tunnel.txt
+
+        # 2. 提取本地隧道地址
         prepare_tunnel_file()
-        
-        # 3. 加密压缩整个包含密码文件的 output 目录
+
+        # 3. 使用 XZ 压缩并通过 age 加密
         compress_and_encrypt(CONFIG.BASE_DIR, encrypted_file_name)
-        
-        # 4. 上传加密包至网盘
+
+        # 4. 上传至 Google Drive
         upload_to_gdrive(encrypted_file_name)
-        
+
     except Exception as e:
-        print(f"❌ 运行失败:{e}", flush=True)
+        print(f"❌ 运行失败: {e}", flush=True)
         sys.exit(1)
+
     finally:
-        # 清理生成的临时压缩包和 output 目录,保证安全
         print("🧹 正在清理本地临时敏感数据...", flush=True)
+
         if CONFIG.OUTPUT_DIR.exists():
             shutil.rmtree(CONFIG.OUTPUT_DIR)
+
         local_archive = CONFIG.BASE_DIR / encrypted_file_name
         if local_archive.exists():
             local_archive.unlink()
+
         print("✅ 运行结束", flush=True)
+
 
 # ============================================================
 # Entry Point
 # ============================================================
-
 if __name__ == "__main__":
     main()
