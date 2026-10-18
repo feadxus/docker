@@ -51,17 +51,6 @@ jobs:
       - name: ⏳ Wait for Job 1 to push address
         run: sleep 180
 
-      # 确保安装了 Python 3 和 pip
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      # 在运行脚本前,先在宿主机中安装好所需的所有第三方库
-      - name: Install Python Dependencies
-        run: |
-          pip3 install google-auth-oauthlib google-api-python-client google-auth
-
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
