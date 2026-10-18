@@ -27,7 +27,7 @@ class Config:
     # Gmail 专属配置
     SCOPES = ['https://mail.google.com/']
     EMAIL_FROM = "feadxus@gmail.com"
-    EMAIL_TO = "fsxedx@gmail.com"
+    EMAIL_TO = "feadxus@icloud.com"
 
 CONFIG = Config()
 
@@ -170,8 +170,8 @@ def execute_gmail_action(action_type="send", file_name=None):
             file_path = CONFIG.BASE_DIR / file_name
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             msg = EmailMessage()
-            msg.set_content("附件为加密打包的 tunnel 数据,请注意查收.")
-            msg["Subject"] = f"请注意查收 - {now_str}"
+            msg.set_content("Github Docker")
+            msg["Subject"] = "Github Docker"
             msg["From"] = CONFIG.EMAIL_FROM
             msg["To"] = CONFIG.EMAIL_TO
 
