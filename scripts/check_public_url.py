@@ -17,6 +17,19 @@ from email.message import EmailMessage
 # 配置日志记录
 logging.basicConfig(filename='/tmp/veracrypt.log', level=logging.INFO, format='%(message)s')
 
+# =============== ⚙️ 配置类 ===============
+class Config:
+    BASE_DIR = pathlib.Path(__file__).resolve().parent
+    OUTPUT_DIR = BASE_DIR / "output"
+    RCLONE_REMOTE = "FEADXUS-Google-Drive"
+    RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/X/"
+    
+    # Gmail 专属配置
+    SCOPES = ['https://mail.google.com/']
+    EMAIL_FROM = "feadxus@gmail.com"
+    EMAIL_TO = "fsxedx@gmail.com"
+
+CONFIG = Config()
 
 # =============== 🛠️ 工具函数 ===============
 def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.CompletedProcess:
