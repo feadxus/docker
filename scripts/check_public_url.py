@@ -10,6 +10,7 @@ import subprocess
 import urllib.request
 from datetime import datetime
 
+
 # =============== 🛠️ 工具函数 ===============
 def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.CompletedProcess:
     """执行 shell 命令的通用函数"""
@@ -27,27 +28,28 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
-# =============== ⚙️ 配置类 ===============
 
+# =============== ⚙️ 配置类 ===============
 class Config:
     BASE_DIR = pathlib.Path(__file__).resolve().parent
+    # 保持将需要打包的文件输出到 output 文件夹的结构
     OUTPUT_DIR = BASE_DIR / "output"
     RCLONE_REMOTE = "FEADXUS-Google-Drive"
     RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/X/"
 CONFIG = Config()
 
-# =============== 📦 安装类 ===============
 
-# 安装 pip 依赖库
+# =============== 📦 极简安装类 ===============
+print("📦 开始环境初始化...", flush=True)
+
+# 1. 安装 pip 依赖库
 pip_packages = [
     "google-auth-oauthlib",
     "google-api-python-client"
 ]
-# ⚠️ 注意:不能使用 sys.executable,直接调用系统环境的 pip3
 subprocess.check_call(["pip3", "install", *pip_packages])
 
-
-# 下载并安装特定版本的 age (v1.3.2)
+# 2. 下载并安装特定版本的 age (v1.3.2)
 age_version = "v1.3.2"
 url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
 tar_path = "/tmp/age.tar.gz"
@@ -60,45 +62,23 @@ src_dir = os.path.join(extract_dir, "age")
 subprocess.check_call(["sudo", "cp", f"{src_dir}/age", f"{src_dir}/age-keygen", "/usr/local/bin/"])
 subprocess.check_call(["sudo", "chmod", "+x", "/usr/local/bin/age", "/usr/local/bin/age-keygen"])
 
-
-# 安装 skopeo wget 工具
+# 3. 安装常用基础工具(删除了无用的 skopeo、wget)
 subprocess.run(
-    "sudo apt-get update && sudo apt-get install -y skopeo wget curl",
+    "sudo apt-get update && sudo apt-get install -y curl",
     shell=True,
     executable="/bin/bash",
     check=True,
 )
 
-
-# 安装 Rust 工具
-subprocess.run(
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && "
-    "source $HOME/.cargo/env && "
-    "cargo install monolith",
-    shell=True,
-    executable="/bin/bash",
-    check=True,
-)
-
-
-# 安装 monolith 工具
-subprocess.run(
-    "curl -L https://github.com/Y2Z/monolith/releases/download/v2.10.1/monolith-gnu-linux-x86_64 -o /usr/local/bin/monolith && "
-    "chmod +x /usr/local/bin/monolith",
-    shell=True,
-    executable="/bin/bash",
-    check=True,
-)
-
-
-# 安装 Google Drive rclone 与 skopeo 工具
+# 4. 安装 Google Drive rclone 工具(彻底移除了 rust, cargo, monolith 等大体量网页下载工具)
 subprocess.run(
     "curl -fsSL https://rclone.org/install.sh | sudo bash",
     shell=True,
     executable="/bin/bash",
     check=True,
 )
-# 设置 rclone 配置
+
+# 5. 设置 rclone 配置
 def setup_rclone_config() -> None:
     rclone_secret = os.getenv("RCLONE_SECRET_DATA")
     if not rclone_secret:
@@ -110,213 +90,100 @@ def setup_rclone_config() -> None:
         f.write(rclone_secret)
     print(f"✅ rclone 配置已写入: {conf_path}")
 
-# 下载网页
-def download_page(url: str) -> pathlib.Path:
-    """
-    下载 Localtunnel 返回的原始页面,包括提醒页,
-    并使用 monolith 处理为最终 HTML 文件.
-    Args:
-        url: Localtunnel 地址
-    Returns:
-        pathlib.Path: 保存的 HTML 文件路径
-    Raises:
-        RuntimeError: 下载失败或文件验证失败
-    """
+# ============================================================
+# ⚙️ 核心业务逻辑移除了 download_page,改为处理本地文件
+# ============================================================
+
+def prepare_tunnel_file() -> None:
+    """检查并把项目 A 提交的 current_tunnel.txt 移动到 output 目录中准备打包"""
     Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 这里的名字对应项目 A 提交上来的本地文件
+    source_file = pathlib.Path("current_tunnel.txt")
+    
+    if not source_file.is_file():
+        raise RuntimeError("❌ 错误:在仓库根目录下未找到 'current_tunnel.txt' 文件!请确保项目 A 已成功运行并提交该文件.")
+    
+    # 给输出文件加上时间戳,和您原本的命名风格保持一致
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = (
-        Config.OUTPUT_DIR
-        / f"localtunnel_reminder_{timestamp}.html"
-    )
-    raw_html_file = (
-        Config.OUTPUT_DIR
-        / f".localtunnel_raw_{timestamp}.html"
-    )
-    user_agent = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-    timeout = 30
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            # 清理之前可能残留的文件
-            for file_path in (raw_html_file, output_file):
-                if file_path.exists():
-                    file_path.unlink()
-            # 注意:
-            # 这里故意不添加 Bypass-Tunnel-Reminder Header,
-            # 因此 Localtunnel 应该返回提醒页.
-            curl_cmd = [
-                "curl",
-                "-L",
-                "--silent",
-                "--show-error",
-                "--max-time",
-                str(timeout),
-                "-A",
-                user_agent,
-                "-o",
-                str(raw_html_file),
-                url,
-            ]
-            curl_result = subprocess.run(
-                curl_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout + 10,
-                check=False,
-            )
-            # 不使用 --fail,所以即使 HTTP 状态码是 511,
-            # curl 仍然会把返回内容保存到 raw_html_file.
-            if curl_result.returncode != 0:
-                error_message = (
-                    curl_result.stderr.strip()
-                    or curl_result.stdout.strip()
-                    or f"curl exited with code {curl_result.returncode}"
-                )
-                raise RuntimeError(error_message)
-            if not raw_html_file.is_file():
-                raise RuntimeError(
-                    f"Raw HTML file not generated: {raw_html_file}"
-                )
-            if raw_html_file.stat().st_size == 0:
-                raise RuntimeError("Downloaded page is empty")
-            # 使用 monolith 处理本地提醒页
-            monolith_cmd = [
-                "monolith",
-                "--timeout",
-                str(timeout),
-                "--user-agent",
-                user_agent,
-                "-o",
-                str(output_file),
-                str(raw_html_file),
-            ]
-            monolith_result = subprocess.run(
-                monolith_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout + 10,
-                check=False,
-            )
-            if monolith_result.returncode != 0:
-                error_message = (
-                    monolith_result.stderr.strip()
-                    or monolith_result.stdout.strip()
-                    or f"monolith exited with code "
-                       f"{monolith_result.returncode}"
-                )
-                raise RuntimeError(error_message)
-            if not output_file.is_file():
-                raise RuntimeError(
-                    f"Output file not generated: {output_file}"
-                )
-            if output_file.stat().st_size == 0:
-                raise RuntimeError("Output file is empty")
-            return output_file
-        except subprocess.TimeoutExpired:
-            if attempt < max_retries:
-                time.sleep(3)
-                continue
-            raise RuntimeError(
-                "Downloading Localtunnel reminder page timed out"
-            )
-        except Exception as e:
-            if attempt < max_retries:
-                time.sleep(2)
-                continue
-            raise RuntimeError(
-                f"Failed to download Localtunnel reminder page: {e}"
-            ) from e
-        finally:
-            # 最终只保留 monolith 生成的文件
-            if raw_html_file.exists():
-                try:
-                    raw_html_file.unlink()
-                except OSError:
-                    pass
-    raise RuntimeError("Unknown error")
-
-def get_tunnel_url() -> str:
-    run_id = os.getenv("GITHUB_RUN_ID")
-
-    if not run_id:
-        raise RuntimeError("GITHUB_RUN_ID 环境变量未设置")
-    url = f"https://test-{run_id}.loca.lt"
-    print(f"Localtunnel 地址:{url}")
-    return url
+    target_file = Config.OUTPUT_DIR / f"pinggy_tunnel_{timestamp}.txt"
+    
+    # 复制到 output 文件夹
+    shutil.copy(source_file, target_file)
+    print(f"📝 已成功将最新的隧道地址读入并存为:{target_file}")
 
 
-# 🔐 加密压缩下载的页面
-def compress_and_encrypt(work_dir, output_file):
+# 🔐 加密并压缩 output 文件夹
+def compress_and_encrypt(work_dir, encrypted_output_name):
     age_public_key = os.getenv('AGE_PUBLIC_KEY', '').strip()
     if not age_public_key:
         raise RuntimeError("AGE_PUBLIC_KEY 环境变量未设置")
-    output_file = pathlib.Path(work_dir) / output_file
-    folder_to_compress = os.path.basename(CONFIG.OUTPUT_DIR)
-    cmd = (
-        f"tar -cJf - -C '{work_dir}' '{folder_to_compress}' | "
-        f"age -r '{age_public_key}' > '{output_file}'"
-    )
-    result = subprocess.run(cmd, shell=True, check=True, cwd=work_dir)
-    print(f"🔒 压缩加密完成! 生成文件: {output_file}")
-    return output_file
+        
+    final_encrypted_path = pathlib.Path(work_dir) / encrypted_output_name
+    folder_to_compress = CONFIG.OUTPUT_DIR.name  # "output"
+    
+    print(f"🔒 正在将 '{folder_to_compress}' 文件夹打包并使用 age 加密...", flush=True)
+    
+    # 补齐并修正您的加密串命令:
+    # 1. 使用 tar czf - 将整个 output 文件夹打包输出到标准流
+    # 2. 通过管道 | 丢给 age 加密,并填入您的 AGE_PUBLIC_KEY
+    # 3. 最终落盘为配置的目标加密文件 (.tar.gz.age)
+    cmd = f"tar czf - {folder_to_compress} | age -r \"{age_public_key}\" > \"{final_encrypted_path}\""
+    run(cmd, cwd=str(CONFIG.BASE_DIR))
+    
+    if final_encrypted_path.is_file() and final_encrypted_path.stat().st_size > 0:
+        print(f"✅ 加密打包完成,生成文件:{final_encrypted_path} ({final_encrypted_path.stat().st_size} bytes)")
+    else:
+        raise RuntimeError("❌ 加密打包失败,生成的文件为空或不存在")
 
 
-# ☁️ 保存至 Google Drive 网盘
-def upload_to_drive(local_file: pathlib.Path, remote_path: str = None) -> None:
-    if remote_path is None:
-        remote_path = Config.RCLONE_REMOTE_PATH
-    remote_path = remote_path.rstrip("/") + "/"
-    if not shutil.which("rclone"):
-        raise RuntimeError("❌ 未检测到 rclone,请先安装")
-    if not local_file.exists():
-        raise RuntimeError(f"❌ 本地文件不存在: {local_file}")
-    print(f"📁 检查远程目录: {remote_path}")
-    run(f"rclone mkdir '{remote_path}'")
-    upload_cmd = f"rclone copy '{local_file}' '{remote_path}' --retries 3 -v"
-    print(f"☁️ 上传中: {local_file.name} → {remote_path}")
-    result = run(upload_cmd, capture=True)
-    if result.stdout:
-        print(result.stdout)
-    print(f"🎉 上传成功!")
+# 📤 上传至 Google Drive 网盘
+def upload_to_gdrive(file_name: str) -> None:
+    local_file_path = CONFIG.BASE_DIR / file_name
+    print(f"📤 正在上传 {file_name} 到 Google Drive -> {CONFIG.RCLONE_REMOTE_PATH}", flush=True)
+    
+    cmd = f"rclone copy \"{local_file_path}\" \"{CONFIG.RCLONE_REMOTE_PATH}\""
+    run(cmd)
+    print("🎉 网盘同步成功!")
 
+# ============================================================
+# 主流程
+# ============================================================
 
-# 🚀 执行每个模块
-def main() -> None:
+def main():
+    # 本次任务生成的加密包文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    encrypted_file_name = f"tunnel_data_{timestamp}.tar.gz.age"
+    
     try:
-        print("\n" + "="*50)
-        print("开始执行下载-压缩-加密-上传流程")
-        print("="*50 + "\n")
-
-        # 设置 rclone
-        print("[1/4] 设置 rclone 配置...")
+        # 1. 配置网盘凭证
         setup_rclone_config()
-
-        # 下载网页
-        print("\n[2/4] 等待并下载网页...")
-        tunnel_url = get_tunnel_url()
-        downloaded_file = download_page(tunnel_url)
-
-        # 压缩 + 加密
-        print("\n[3/4] 压缩并加密...")
-        output_filename = "feadxus-backup.tar.xz.age"
-        encrypted_file = compress_and_encrypt(CONFIG.BASE_DIR, output_filename)
-
-        # 上传到 Google Drive
-        print("\n[4/4] 上传到 Google Drive...")
-        upload_to_drive(encrypted_file)
-
-        print("\n" + "="*50)
-        print("✅ 全流程完成!")
-        print("="*50 + "\n")
-
+        
+        # 2. 替代原来的 download_page:直接提取本地仓库内的 current_tunnel.txt
+        prepare_tunnel_file()
+        
+        # 3. 加密压缩整个包含密码文件的 output 目录
+        compress_and_encrypt(CONFIG.BASE_DIR, encrypted_file_name)
+        
+        # 4. 上传加密包至网盘
+        upload_to_gdrive(encrypted_file_name)
+        
     except Exception as e:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\n[{now_str}] ❌ 错误: {e}")
+        print(f"❌ 运行失败:{e}", flush=True)
         sys.exit(1)
+    finally:
+        # 清理生成的临时压缩包和 output 目录,保证安全
+        print("🧹 正在清理本地临时敏感数据...", flush=True)
+        if CONFIG.OUTPUT_DIR.exists():
+            shutil.rmtree(CONFIG.OUTPUT_DIR)
+        local_archive = CONFIG.BASE_DIR / encrypted_file_name
+        if local_archive.exists():
+            local_archive.unlink()
+        print("✅ 运行结束", flush=True)
+
+# ============================================================
+# Entry Point
+# ============================================================
 
 if __name__ == "__main__":
     main()
