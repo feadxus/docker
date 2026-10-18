@@ -29,7 +29,7 @@ class Config:
     RCLONE_REMOTE_PATH = f"{RCLONE_REMOTE}:/X/"
     
     # Gmail 专属配置
-    SCOPES = ['https://google.com']
+    SCOPES = ['https://mail.google.com/']
     EMAIL_FROM = "feadxus@gmail.com"
     EMAIL_TO = "fsxedx@gmail.com"
 
@@ -53,9 +53,10 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
+
 # 2. 下载并安装特定版本的 age (v1.3.2)
 age_version = "v1.3.2"
-url = f"https://github.com{age_version}/age-{age_version}-linux-amd64.tar.gz"
+url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
 tar_path = "/tmp/age.tar.gz"
 extract_dir = "/tmp/age_bin"
 urllib.request.urlretrieve(url, tar_path)
@@ -76,7 +77,7 @@ subprocess.run(
 
 # 4. 安装 Google Drive rclone 工具
 subprocess.run(
-    "curl -fsSL https://rclone.org | sudo bash",
+    "curl -fsSL https://rclone.org/install.sh | sudo bash",
     shell=True,
     executable="/bin/bash",
     check=True,
