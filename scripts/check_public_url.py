@@ -53,16 +53,14 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
 def initialize_environment():
     print("📦 开始环境初始化...", flush=True)
 
-    # 1. 安装 pip 依赖库
     pip_packages = ["google-auth-oauthlib", "google-api-python-client", "google-auth"]
-    subprocess.check_call(["pip3", "install", *pip_packages])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", *pip_packages])
 
     # 2. 下载并安装特定版本的 age (v1.3.2) 带重试
     age_version = "v1.3.2"
     url = f"https://github.com/FiloSottile/age/releases/download/{age_version}/age-{age_version}-linux-amd64.tar.gz"
     tar_path = "/tmp/age.tar.gz"
     extract_dir = "/tmp/age_bin"
-
     for attempt in range(1, 4):
         try:
             print(f"📥 正在下载 age 工具 (尝试: {attempt}/3)...", flush=True)
@@ -71,7 +69,6 @@ def initialize_environment():
         except Exception as e:
             if attempt == 3: raise e
             time.sleep(3)
-
     os.makedirs(extract_dir, exist_ok=True)
     with tarfile.open(tar_path, "r:gz") as tar:
         tar.extractall(path=extract_dir)
