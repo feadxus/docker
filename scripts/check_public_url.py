@@ -53,18 +53,6 @@ def run(cmd: str, cwd: str = None, capture: bool = False) -> subprocess.Complete
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"命令执行失败: {cmd}\n{e.stderr}")
 
-
-# =============== 📦 环境初始化 ===============
-print("📦 开始环境初始化...", flush=True)
-
-# 1. 安装 pip 依赖库
-pip_packages = [
-    "google-auth-oauthlib",
-    "google-api-python-client",
-    "google-auth"
-]
-subprocess.check_call(["pip3", "install", *pip_packages])
-
 # 2. 下载并安装特定版本的 age (v1.3.2)
 age_version = "v1.3.2"
 url = f"https://github.com{age_version}/age-{age_version}-linux-amd64.tar.gz"
