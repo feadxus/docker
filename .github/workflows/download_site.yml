@@ -1,21 +1,14 @@
 name: Start Tunnel And Check Public URL
 
 on:
-  # 🖱️ 支持手动启动
   workflow_dispatch:
-  # ♻️ 每 6 小时自动启动一次
   schedule:
     - cron: "0 */6 * * *"
 
-# 1. 将全局读权限修改为写权限,允许脚本向仓库 push 代码
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-
-  # ==========================================================
-  # 🚇 启动 Docker + Pinggy 隧道并提交端口
-  # ==========================================================
   start-tunnel:
     name: 🚇 Job 1 - Start Docker and Pinggy Tunnel
     runs-on: ubuntu-latest
@@ -27,43 +20,30 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          # 2. 显式传入具备写权限的默认 Token,防止 git push 报 403
           token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: 🚇 Start Docker and Pinggy Tunnel
         run: |
           python3 scripts/start_tunnel.py
 
-  # ==========================================================
-  # 🌐 读取最新端口 + 加密 + 上传网盘
-  # ==========================================================
+
   check-public-url:
     name: 🌐 Job 2 - Check Public URL and Process Page
     runs-on: ubuntu-latest
-    # 3. 两个 Job 同时并发启动.
     env:
       GITHUB_RUN_ID: ${{ github.run_id }}
       RCLONE_SECRET_DATA: ${{ secrets.GOOGLE_FEADXUS_DRIVE }}
       AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
       GMAIL_TOKEN_BASE64: ${{ secrets.GMAIL_TOKEN_BASE64 }}
     steps:
-      # Job 2 启动时延迟 360 秒,确保 Job 1 已经把 current_tunnel.txt 生成并 push 上去了
-      - name: ⏳ Wait for Job 1 to push address
-        run: sleep 360
-
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
-        with:
-          # 5. 确保拉取到的是 Job 1 刚刚提交上来的包含最新 current_tunnel.txt 的代码
-          fetch-depth: 0
 
       - name: 🌐 Check Public URL
         run: |
-          # 再次强制拉取最新代码,防止缓存
           git pull origin main || true
           python3 scripts/check_public_url.py
 
-      # 6. 原网页下载模块已移除,若不再需要下载 artifacts 产物,此步骤可留空或保留(已将路径对齐原结构)
       - name: 📦 Upload downloaded page
         if: always()
         uses: actions/upload-artifact@v4
