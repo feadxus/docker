@@ -108,30 +108,15 @@ def setup_rclone_config() -> None:
 
 
 # =============== ⚙️ 核心业务逻辑 ===============
+
 def prepare_tunnel_file() -> None:
     CONFIG.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     source_file = pathlib.Path("current_tunnel.txt")
+    if not source_file.is_file():
+        raise RuntimeError("❌ 错误:仓库根目录下未找到 'current_tunnel.txt' 文件!")
     
-    # ✅ 重试逻辑：等待 current_tunnel.txt 出现
-    max_retries = 10
-    retry_interval = 5
-    
-    for attempt in range(1, max_retries + 1):
-        if source_file.is_file():
-            print(f"✅ 找到 current_tunnel.txt (尝试 {attempt}/{max_retries})", flush=True)
-            target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            shutil.copy(source_file, target_file)
-            print(f"✅ 已复制到: {target_file}", flush=True)
-            return
-        
-        if attempt < max_retries:
-            print(f"⏳ current_tunnel.txt 未找到，{retry_interval} 秒后重试... ({attempt}/{max_retries})", flush=True)
-            time.sleep(retry_interval)
-        else:
-            raise RuntimeError(
-                "❌ 错误：在规定时间内未找到 'current_tunnel.txt'！"
-                "请确保 Job 1 已成功执行并提交该文件。"
-            )
+    target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    shutil.copy(source_file, target_file)
 
 
 # =============== 🔐 加密并压缩 output 文件夹 ===============
@@ -228,16 +213,12 @@ def execute_gmail_action(action_type="send", file_name=None):
 def main():
     encrypted_file_name = "tunnel_data.tar.xz.age"
     try:
-        # 环境初始化
         initialize_environment()
-        # 配置网盘凭证
         setup_rclone_config()
-        # 提取本地隧道地址
         prepare_tunnel_file()
-        # 使用 XZ 压缩并通过 age 加密
         compress_and_encrypt(CONFIG.BASE_DIR, encrypted_file_name)
-        # 上传至 Google Drive
         upload_to_gdrive(encrypted_file_name)
+
         print("📧 开始拉起安全沙箱,组装发送邮件...", flush=True)
         execute_gmail_action(action_type="send", file_name=encrypted_file_name)
 
