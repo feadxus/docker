@@ -93,6 +93,7 @@ def initialize_environment():
     subprocess.run("curl -fsSL https://rclone.org/install.sh | sudo bash", shell=True, executable="/bin/bash", check=True)
 
 
+
 # =============== 🛠️ 设置 rclone 配置 ===============
 def setup_rclone_config() -> None:
     rclone_secret = os.getenv("RCLONE_SECRET_DATA")
@@ -107,86 +108,55 @@ def setup_rclone_config() -> None:
 
 
 # =============== ⚙️ 核心业务逻辑 ===============
-
 def prepare_tunnel_file() -> None:
-    """
-    ✨ 修正版本：从环境变量或文件读取隧道数据
-    优先级：环境变量 TUNNEL_DATA > 本地文件 current_tunnel.txt
-    """
     CONFIG.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # 第一优先级：从环境变量读取
-    tunnel_data = os.getenv("TUNNEL_DATA")
-    
-    if tunnel_data and tunnel_data.strip():
-        print(f"✅ 从 TUNNEL_DATA 环境变量读取隧道数据", flush=True)
-        target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(tunnel_data.strip())
-        print(f"📝 隧道数据: {tunnel_data.strip()}", flush=True)
-        return
-    
-    # 第二优先级：降级方案，尝试读取本地文件（用于本地测试）
     source_file = pathlib.Path("current_tunnel.txt")
-    if source_file.is_file():
-        print(f"⚠️  未检测到 TUNNEL_DATA 环境变量，从本地文件读取", flush=True)
-        with open(source_file, "r", encoding="utf-8") as f:
-            tunnel_data = f.read().strip()
-        
-        target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(tunnel_data)
-        print(f"📝 隧道数据: {tunnel_data}", flush=True)
-        return
     
-    # 两个来源都没有数据
-    raise RuntimeError(
-        "❌ 错误：既未检测到 TUNNEL_DATA 环境变量，"
-        "也未在仓库根目录找到 'current_tunnel.txt' 文件!"
-    )
+    # ✅ 重试逻辑：等待 current_tunnel.txt 出现
+    max_retries = 10
+    retry_interval = 5
+    
+    for attempt in range(1, max_retries + 1):
+        if source_file.is_file():
+            print(f"✅ 找到 current_tunnel.txt (尝试 {attempt}/{max_retries})", flush=True)
+            target_file = CONFIG.OUTPUT_DIR / f"pinggy_tunnel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            shutil.copy(source_file, target_file)
+            print(f"✅ 已复制到: {target_file}", flush=True)
+            return
+        
+        if attempt < max_retries:
+            print(f"⏳ current_tunnel.txt 未找到，{retry_interval} 秒后重试... ({attempt}/{max_retries})", flush=True)
+            time.sleep(retry_interval)
+        else:
+            raise RuntimeError(
+                "❌ 错误：在规定时间内未找到 'current_tunnel.txt'！"
+                "请确保 Job 1 已成功执行并提交该文件。"
+            )
 
 
 # =============== 🔐 加密并压缩 output 文件夹 ===============
 def compress_and_encrypt(work_dir, encrypted_output_name):
     age_public_key = os.getenv('AGE_PUBLIC_KEY', '').strip()
     if not age_public_key:
-        raise RuntimeError("❌ AGE_PUBLIC_KEY 环境变量未设置")
+        raise RuntimeError("AGE_PUBLIC_KEY 环境变量未设置")
 
     final_encrypted_path = pathlib.Path(work_dir) / encrypted_output_name
-    
-    # 检查 output 目录是否存在且非空
-    if not CONFIG.OUTPUT_DIR.exists() or not list(CONFIG.OUTPUT_DIR.iterdir()):
-        raise RuntimeError(f"❌ 加密失败: {CONFIG.OUTPUT_DIR} 目录不存在或为空")
-    
     cmd = f"set -o pipefail; tar cJf - {CONFIG.OUTPUT_DIR.name} | age -r '{age_public_key}' > '{final_encrypted_path}'"
-    print(f"🔐 正在加密并压缩 {CONFIG.OUTPUT_DIR}...", flush=True)
     run(cmd, cwd=str(CONFIG.BASE_DIR))
-    
-    # 验证加密文件是否生成成功
-    if not final_encrypted_path.exists():
-        raise RuntimeError(f"❌ 加密失败: 未生成 {encrypted_output_name}")
-    
-    file_size = final_encrypted_path.stat().st_size
-    print(f"✅ 加密完成，文件大小: {file_size / 1024:.2f} KB", flush=True)
 
 
 # =============== 📤 上传至 Google Drive 网盘 ===============
 def upload_to_gdrive(file_name: str) -> None:
     local_file_path = CONFIG.BASE_DIR / file_name
-    
-    if not local_file_path.exists():
-        raise RuntimeError(f"❌ 上传失败: 本地文件 {file_name} 不存在")
-    
-    print(f"📤 开始上传 {file_name} 至 Google Drive...", flush=True)
     run(f"rclone copy \"{local_file_path}\" \"{CONFIG.RCLONE_REMOTE_PATH}\"")
     print("🎉 网盘同步成功!")
 
 
-# =============== 📧 Gmail 业务模块 ===============
+# =============== 📧 Gmail 业务模块 (完美复刻本地环境) ===============
 
 def execute_gmail_action(action_type="send", file_name=None):
     """
-    💡 利用临时文件机制，完美复刻本地的 'from_authorized_user_file' 环境
+    💡 利用临时文件机制,完美复刻你本地的 'from_authorized_user_file' 环境
     并完成 发送 或 删除 动作
     """
     from google.oauth2.credentials import Credentials
@@ -200,41 +170,33 @@ def execute_gmail_action(action_type="send", file_name=None):
     # 1. 解码出原始的 JSON 字符串
     token_json_str = base64.b64decode(token_b64.strip()).decode("utf-8")
 
-    # 2. 核心黑魔法：在系统安全临时目录下创建一个绝对私密的文件
+    # 2. 核心黑魔法:在系统安全临时目录下创建一个绝对私密的文件
     with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as temp_token_file:
         temp_token_file.write(token_json_str)
         temp_token_file.flush()
         temp_token_path = temp_token_file.name
 
     try:
-        # 3. 完美复刻本地的加载方式，让 Google 正常注入刷新器
+        # 3. 完美复刻你本地的加载方式,让 Google 正常注入刷新器
         creds = Credentials.from_authorized_user_file(temp_token_path, CONFIG.SCOPES)
 
-        # 4. 执行刷新（如果凭证过期，会自动用 refresh_token 请求新的）
+        # 4. 执行刷新(如果是新运行,expiry时间过期了这里会自动用 refresh_token 去申请新的)
         if creds and creds.expired and creds.refresh_token:
-            print("🔄 凭证已过期，正在刷新...", flush=True)
+            print("🔄 内存检测到凭证已过期,正在利用原装引擎请求 Google 刷新...", flush=True)
             creds.refresh(Request())
 
         if not creds or not creds.valid:
-            raise RuntimeError("❌ Google 凭证验证失败")
+            raise RuntimeError("❌ 临时的 Google 凭证对象验证无效.")
 
         service = build('gmail', 'v1', credentials=creds)
 
         # 5. 按照策略分流动作
         if action_type == "send":
-            if not file_name:
-                raise RuntimeError("❌ 发送邮件时必须指定文件名")
-            
             file_path = CONFIG.BASE_DIR / file_name
-            
-            if not file_path.exists():
-                raise RuntimeError(f"❌ 文件不存在: {file_path}")
-            
-            print(f"📧 正在组装邮件，附件: {file_name}...", flush=True)
-            
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             msg = EmailMessage()
-            msg.set_content("Github Docker Tunnel Data")
-            msg["Subject"] = f"Tunnel Data - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            msg.set_content("Github Docker")
+            msg["Subject"] = "Github Docker"
             msg["From"] = CONFIG.EMAIL_FROM
             msg["To"] = CONFIG.EMAIL_TO
 
@@ -243,108 +205,61 @@ def execute_gmail_action(action_type="send", file_name=None):
 
             encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             sent_msg = service.users().messages().send(userId="me", body={"raw": encoded_message}).execute()
-            print(f"📧 邮件成功发送! Message ID: {sent_msg['id']}", flush=True)
+            print(f"📧 邮件成功发送！Message ID: {sent_msg['id']}", flush=True)
 
         elif action_type == "delete":
-            print(f"🧹 开始清理 Gmail 发件箱...", flush=True)
             total_deleted = 0
-            
             while True:
                 results = service.users().messages().list(userId='me', q='in:sent', maxResults=500).execute()
                 messages = results.get('messages', [])
-                
-                if not messages:
-                    break
-                
+                if not messages: break
                 msg_ids = [m['id'] for m in messages]
                 service.users().messages().batchDelete(userId='me', body={'ids': msg_ids}).execute()
                 total_deleted += len(msg_ids)
-                print(f"  - 已删除 {len(msg_ids)} 封邮件", flush=True)
-            
-            print(f"✅ 发件箱清理完成，共删除 {total_deleted} 封邮件", flush=True)
+            print(f"🧹 已成功从发件箱彻底清空了 {total_deleted} 封发送记录.", flush=True)
 
-    except Exception as e:
-        raise RuntimeError(f"❌ Gmail 操作失败: {e}")
-    
     finally:
-        # 6. 安全善后：不论成功或失败，必须抹除临时生成的明文 JSON 文件
+        # 6. 安全善后:不论成功或失败,必须抹除这个临时生成的明文 JSON 文件
         if os.path.exists(temp_token_path):
-            try:
-                os.unlink(temp_token_path)
-                print("🔒 已安全删除临时凭证文件", flush=True)
-            except Exception as e:
-                logging.error(f"⚠️ 删除临时文件失败: {e}")
+            os.unlink(temp_token_path)
 
 
 # =============== 主流程 ===============
 def main():
     encrypted_file_name = "tunnel_data.tar.xz.age"
-    
     try:
-        print("=" * 60, flush=True)
-        print("🚀 Job 2: 检查公网 URL 并处理隧道数据", flush=True)
-        print("=" * 60, flush=True)
-        
-        # Step 1: 初始化环境
-        print("\n[1/6] 初始化环境...", flush=True)
+        # 环境初始化
         initialize_environment()
-        
-        # Step 2: 配置 rclone
-        print("\n[2/6] 配置 rclone...", flush=True)
+        # 配置网盘凭证
         setup_rclone_config()
-        
-        # Step 3: 准备隧道文件（从环境变量或本地文件）
-        print("\n[3/6] 准备隧道数据...", flush=True)
+        # 提取本地隧道地址
         prepare_tunnel_file()
-        
-        # Step 4: 加密并压缩
-        print("\n[4/6] 加密并压缩数据...", flush=True)
+        # 使用 XZ 压缩并通过 age 加密
         compress_and_encrypt(CONFIG.BASE_DIR, encrypted_file_name)
-        
-        # Step 5: 上传至 Google Drive
-        print("\n[5/6] 上传至 Google Drive...", flush=True)
+        # 上传至 Google Drive
         upload_to_gdrive(encrypted_file_name)
-
-        # Step 6: 发送邮件
-        print("\n[6/6] 发送邮件并清理...", flush=True)
-        print("📧 正在组装安全沙箱...", flush=True)
+        print("📧 开始拉起安全沙箱,组装发送邮件...", flush=True)
         execute_gmail_action(action_type="send", file_name=encrypted_file_name)
 
-        # Step 7: 清理发件箱
-        print("\n[7/7] 清理 Gmail 发件箱...", flush=True)
-        for attempt in range(1, 3):
+        print("🧹 开始执行发件箱残留清理...", flush=True)
+        for _ in range(2):
             try:
                 execute_gmail_action(action_type="delete")
-                break
+                time.sleep(1)
             except Exception as e:
-                if attempt < 2:
-                    print(f"⚠️  清理失败（尝试 {attempt}/2），2秒后重试...", flush=True)
-                    time.sleep(2)
-                else:
-                    logging.error(f"清理发件箱最终失败: {e}")
-                    print(f"⚠️  清理失败: {e}", flush=True)
-
-        print("\n" + "=" * 60, flush=True)
-        print("✅ 全部流程执行完成！", flush=True)
-        print("=" * 60, flush=True)
+                logging.error(f"清理发件记录失败尝试: {e}")
+                continue
 
     except Exception as e:
-        print(f"\n❌ 运行失败: {e}", flush=True)
-        logging.error(f"运行失败: {e}")
+        print(f"❌ 运行失败: {e}", flush=True)
         sys.exit(1)
 
     finally:
-        print("\n🧹 正在清理本地临时敏感数据...", flush=True)
-        if CONFIG.OUTPUT_DIR.exists():
-            shutil.rmtree(CONFIG.OUTPUT_DIR)
-            print("  ✓ 已删除 output 目录")
-        
+        print("🧹 正在清理本地临时敏感数据...", flush=True)
+        if CONFIG.OUTPUT_DIR.exists(): shutil.rmtree(CONFIG.OUTPUT_DIR)
         local_archive = CONFIG.BASE_DIR / encrypted_file_name
-        if local_archive.exists():
-            local_archive.unlink()
-            print("  ✓ 已删除加密文件")
-        
-        print("✅ 运行结束，环境已清理", flush=True)
+        if local_archive.exists(): local_archive.unlink()
+        print("✅ 运行结束", flush=True)
 
 
 if __name__ == "__main__":
