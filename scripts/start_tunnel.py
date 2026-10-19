@@ -246,38 +246,23 @@ def decrypt_and_extract_ls() -> pathlib.Path:
 def main() -> None:
     extract_dir = None
     try:
-        print("[1/4] 设置 rclone 配置...")
+        print("[1/5] 设置 rclone 配置...")  # ✨ 改为 1/5
         setup_rclone_config()
 
-        print("[2/4] 挂载网盘目录 remote:/Command 到 /tmp/Command ...")
+        print("[2/5] 挂载网盘目录 remote:/Command 到 /tmp/Command ...")  # ✨ 改为 2/5
         mount_remote_command()
 
-        print("[4/4] 解密并解压 start_docker.tar.xz.age...")
+        print("[3/5] 解密并解压 start_docker.tar.xz.age...")  # ✨ 改为 3/5
         extract_dir = decrypt_and_extract_ls()
 
-        print("[5/5] 列出挂载目录内容...")
+        print("[4/5] 列出挂载目录内容...")  # ✨ 改为 4/5
         ls_res = run(f"ls -al {extract_dir}", capture=True)
         print(ls_res.stdout)
 
-        print("[6/6] 执行解压出来的 start_docker 命令...")
-        # 拼接地址
+        print("[5/5] 执行解压出来的 start_docker 命令...")  # ✨ 改为 5/5
         command_path = pathlib.Path(extract_dir) / "start_docker"
-        # 增加执行权限
         os.chmod(command_path, 0o755)
-        # 执行命令
-        subprocess.run(
-            [str(command_path)],
-            check=True
-        )
-    except Exception as e:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\n[{now_str}] ❌ 错误: {e}")
-        sys.exit(1)
-    # 测试结束后删除固定解压目录
-    finally:
-        if extract_dir is not None and extract_dir.exists():
-            print(f"🧹 删除解压目录: {extract_dir}")
-            shutil.rmtree(extract_dir, ignore_errors=True)
+        subprocess.run([str(command_path)], check=True)
 
 if __name__ == "__main__":
     main()
