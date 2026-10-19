@@ -47,7 +47,7 @@ jobs:
       # Job 2 启动时延迟 420 秒,确保 Job 1 已经把 current_tunnel.txt 生成并 push 上去了
       - name: ⏳ Wait for Job 1 to push address
         run: sleep 420
-    steps:
+
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
