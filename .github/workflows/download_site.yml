@@ -78,7 +78,6 @@ jobs:
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           
           echo "=== 正在修复 Docker 守护进程的全局 DNS (防止容器内部解析失败) ==="
-          sudo cat /etc/docker/daemon.json
           sudo mkdir -p /etc/docker
           echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' | sudo tee /etc/docker/daemon.json
           sudo systemctl restart docker
