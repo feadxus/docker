@@ -69,13 +69,20 @@ jobs:
           sleep 5
           sudo warp-cli --accept-tos status
 
-      # 🛠️ 【新增/核心修复】强制修复 WARP 启动后的 DNS 解析超时问题
-      - name: 🛠️ Fix DNS for Docker & WARP
+      # 🛠️ 不仅修复宿主机 DNS,同时强制修改 Docker 守护进程的默认 DNS,防止容器内部解析超时
+      - name: 🛠️ Fix DNS for Host & Docker Daemon
         run: |
           echo "=== 正在修复系统 DNS 解析 ==="
           sudo rm -f /etc/resolv.conf
           echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+          
+          echo "=== 正在修复 Docker 守护进程的全局 DNS (防止容器内部解析失败) ==="
+          sudo cat /etc/docker/daemon.json
+          sudo mkdir -p /etc/docker
+          echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+  
           echo "=== 测试 DNS 解析是否正常 ==="
           nslookup registry-1.docker.io || true
 
