@@ -69,6 +69,16 @@ jobs:
           sleep 5
           sudo warp-cli --accept-tos status
 
+      # 🛠️ 【新增/核心修复】强制修复 WARP 启动后的 DNS 解析超时问题
+      - name: 🛠️ Fix DNS for Docker & WARP
+        run: |
+          echo "=== 正在修复系统 DNS 解析 ==="
+          sudo rm -f /etc/resolv.conf
+          echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+          echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+          echo "=== 测试 DNS 解析是否正常 ==="
+          nslookup registry-1.docker.io || true
+
       # 🌐 确认 WARP 已接管网络并显示当前使用的代理 IP
       - name: 🌐 Check WARP Public IP
         run: |
