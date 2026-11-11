@@ -1,0 +1,32 @@
+name: SSH Test Connection
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SSH Connection Test
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 45.33.62.68
+          username: root  # 请根据你的实际用户名修改，通常是 root
+          port: 46235
+          key: |
+            -----BEGIN OPENSSH PRIVATE KEY-----
+            b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+            QyNTUxOQAAACAczSWSyXDt3nNhA8wC2CizgS8TFIKmk/qZ7xq9TAQ2/wAAAJCetr+hnra/
+            oQAAAAtzc2gtZWQyNTUxOQAAACAczSWSyXDt3nNhA8wC2CizgS8TFIKmk/qZ7xq9TAQ2/w
+            AAAEDcg2dQi5miuLqXRsq49xSp0fpFLvUcgmJPYXZLi4kr4hzNJZLJcO3ec2EDzALYKLOB
+            LxMUgqaT+pnvGr1MBDb/AAAAC1RhYm1pbmFsLU0xAQI=
+            -----END OPENSSH PRIVATE KEY-----
+          script: |
+            echo "Connection successful!"
+            uptime
+            whoami
